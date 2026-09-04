@@ -95,6 +95,19 @@ export class MongoDBClient {
     return true;
   }
 
+  async getLastConfirmedTransaction(): Promise<Transaction | null> {
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('find', 'transactions', {
+        filter: { status: 'confirmed' },
+        sort: { timestamp: -1 },
+        limit: 1
+      });
+      return res?.documents?.[0] || null;
+    }
+    const recent = getMockTransactions();
+    return recent[0] || null;
+  }
+
   async getRecentTransactions(limit = 20): Promise<Transaction[]> {
     if (this.isConfigured) {
       const res = await this.requestDataApi('find', 'transactions', {

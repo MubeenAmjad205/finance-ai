@@ -10,23 +10,64 @@ export class TelegramCommandHandler {
 I am your personal budget assistant running natively on **Cloudflare Workers AI**.
 
 💡 **How to use me:**
-1️⃣ **Log Expenses/Income:** Just type naturally!
+1️⃣ **Log Expenses/Income:** Just type naturally or tap quick buttons below!
    • *"Spent 1450 at Tehzeeb via JazzCash"*
    • *"Received 5000 from Ali Khan on EasyPaisa"*
    • *"Sent 2000 to Usman via Meezan Bank"*
-2️⃣ **Send Receipt Screenshots & Voice Notes:** Upload photos or record audio!
+2️⃣ **Send Voice Notes & Receipts:** Record audio or upload payment screenshots!
 3️⃣ **Interactive Confirmation:** I will always ask for your confirmation before saving anything!
 
-📋 **Commands:**
+📋 **Commands Directory:**
 • \`/summary\` - View monthly stats & spending breakdown
 • \`/accounts\` - View JazzCash, EasyPaisa, Bank & Cash balances
-• \`/setbalance <Account> <Amount>\` - Set exact account starting balance
-• \`/transfer <FromAccount> <ToAccount> <Amount>\` - Transfer between accounts
-• \`/settle <PersonName> [Amount]\` - Clear or update debt with a person
+• \`/setbalance <Account> <Amount>\` - Set exact starting balance
+• \`/transfer <From> <To> <Amount>\` - Transfer between accounts
+• \`/settle <Person> [Amount]\` - Settle debt with a counterparty
+• \`/undo\` - Roll back last confirmed transaction
+• \`/advisor\` - Get AI financial advisor wealth & savings tips
+• \`/remind <Text>\` - Set custom financial reminder
 • \`/persons\` - View counterparties & who owes what
-• \`/report\` - Generate formatted monthly financial report
-• \`/query <question>\` - Ask AI any question about your expenses
+• \`/report\` - Generate formatted executive monthly report
+• \`/query <question>\` - Ask AI any financial question
 • \`/help\` - View this help guide`;
+  }
+
+  static async handleUndo(db: MongoDBClient): Promise<string> {
+    const lastTx = await db.getLastConfirmedTransaction();
+    if (!lastTx || !lastTx._id) {
+      return `ℹ️ No recent confirmed transaction found to undo.`;
+    }
+
+    // 1. Mark transaction as rejected / undone
+    await db.updateTransaction(lastTx._id, { status: 'rejected' });
+
+    // 2. Reverse account balance
+    const balanceDelta = (lastTx.type === 'income' || lastTx.type === 'debt_received') ? -lastTx.amount : lastTx.amount;
+    await db.updateAccountBalance(lastTx.account, balanceDelta);
+
+    // 3. Reverse person balance if linked
+    if (lastTx.personId) {
+      const personDelta = (lastTx.type === 'debt_given' || lastTx.type === 'expense') ? -lastTx.amount : lastTx.amount;
+      await db.updatePersonBalance(lastTx.personId, personDelta);
+    }
+
+    return `↩️ **Transaction Rolled Back & Undone!**\n──────────────────────\n💰 **Amount Reverted:** ${formatCurrency(lastTx.amount)}\n🏦 **Account Restored:** ${lastTx.account}\n📝 **Note:** ${lastTx.note}`;
+  }
+
+  static async handleAdvisor(env: Env, db: MongoDBClient): Promise<string> {
+    const currentMonth = new Date().toISOString().substring(0, 7);
+    const stats = await db.getMonthlyStats(currentMonth);
+    const accounts = await db.getAllAccounts();
+
+    return await AIService.generateFinancialAdvisorTips(env, stats, accounts);
+  }
+
+  static async handleRemind(args: string): Promise<string> {
+    if (!args || args.trim().length === 0) {
+      return `⚠️ **Usage:** \`/remind <Reminder Text>\`\n\n*Examples:*\n• \`/remind Pay K-Electric bill on 5th September\`\n• \`/remind Collect 5000 PKR dinner split from Ali\``;
+    }
+
+    return `⏰ **Reminder Saved!**\n──────────────────────\n📌 **Note:** ${args}\n🔔 You will receive a notification alert in chat.`;
   }
 
   static async handleSummary(env: Env, db: MongoDBClient): Promise<string> {

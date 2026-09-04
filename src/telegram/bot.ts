@@ -55,6 +55,19 @@ export class TelegramBotHandler {
       let responseText = '';
       if (command === '/start' || command === '/help') {
         responseText = await TelegramCommandHandler.handleStart(this.env);
+        await this.sendTelegramMessage(chatId, responseText, {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            keyboard: [
+              [{ text: '🍔 Food 500' }, { text: '🚗 Petrol 2000' }, { text: '🛒 Grocery 1500' }],
+              [{ text: '/summary' }, { text: '/accounts' }, { text: '/persons' }],
+              [{ text: '/advisor' }, { text: '/undo' }]
+            ],
+            resize_keyboard: true,
+            is_persistent: true
+          }
+        });
+        return;
       } else if (command === '/summary') {
         responseText = await TelegramCommandHandler.handleSummary(this.env, this.db);
       } else if (command === '/accounts') {
@@ -65,6 +78,12 @@ export class TelegramBotHandler {
         responseText = await TelegramCommandHandler.handleTransfer(this.db, args);
       } else if (command === '/settle') {
         responseText = await TelegramCommandHandler.handleSettle(this.db, args);
+      } else if (command === '/undo') {
+        responseText = await TelegramCommandHandler.handleUndo(this.db);
+      } else if (command === '/advisor') {
+        responseText = await TelegramCommandHandler.handleAdvisor(this.env, this.db);
+      } else if (command === '/remind') {
+        responseText = await TelegramCommandHandler.handleRemind(args);
       } else if (command === '/report') {
         responseText = await TelegramCommandHandler.handleReport(this.env, this.db);
       } else if (command === '/persons') {
