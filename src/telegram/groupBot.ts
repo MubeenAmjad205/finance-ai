@@ -373,7 +373,7 @@ export class TelegramGroupBotHandler {
     } else {
       text += `*Multi-day lunch shares are dynamically evened out to minimize transfers:*\n\n`;
       for (const s of settlements) {
-        text += `👉 **${s.fromUser}** owes **${s.toUser}**: **${s.amount.toLocaleString()} PKR**\n`;
+        text += `👉 **${escapeMarkdown(s.fromUser)}** owes **${escapeMarkdown(s.toUser)}**: **${s.amount.toLocaleString()} PKR**\n`;
       }
       text += `\n💡 *Example: If you paid 300 PKR yesterday and a colleague pays 300 PKR today, your debts auto-even out to 0 PKR!*`;
     }
@@ -398,10 +398,10 @@ export class TelegramGroupBotHandler {
       text += `  • Completely settled! No open debts with any colleague.\n`;
     } else {
       for (const o of profile.owesList) {
-        text += `  • Owes **${o.toUser}**: **${o.amount.toLocaleString()} PKR**\n`;
+        text += `  • Owes **${escapeMarkdown(o.toUser)}**: **${o.amount.toLocaleString()} PKR**\n`;
       }
       for (const b of profile.isOwedByList) {
-        text += `  • Is owed by **${b.fromUser}**: **${b.amount.toLocaleString()} PKR**\n`;
+        text += `  • Is owed by **${escapeMarkdown(b.fromUser)}**: **${b.amount.toLocaleString()} PKR**\n`;
       }
     }
 
@@ -430,7 +430,7 @@ export class TelegramGroupBotHandler {
       summaryText += `  • No expenses recorded yet.\n`;
     } else {
       for (const [m, amt] of sortedMembers) {
-        summaryText += `  • ${m}: **${amt.toLocaleString()} PKR**\n`;
+        summaryText += `  • ${escapeMarkdown(m)}: **${amt.toLocaleString()} PKR**\n`;
       }
     }
 
@@ -557,11 +557,47 @@ export class TelegramGroupBotHandler {
     await this.sendTelegramMessage(chatId, text, { parse_mode: 'Markdown' });
   }
 
-  private async sendGroupReminder(chatId: number, customText?: string): Promise<void> {
+  private async sendGroupReminder(chatId: number, customText?: string, targetExpId?: string): Promise<void> {
     const expenses = await this.getGroupExpenses(chatId);
-    const settlements = GroupExpenseService.calculateNetSettlements(expenses);
+    let targetExpenses = expenses;
+
+    if (targetExpId && targetExpId !== 'all') {
+      const specific = expenses.filter(e => e._id === targetExpId);
+      if (specific.length > 0) {
+        targetExpenses = specific;
+      }
+    }
+
+    const settlements = GroupExpenseService.calculateNetSettlements(targetExpenses);
 
     if (settlements.length === 0) {
+      // Check for any unpaid members directly in targetExpenses
+      const unpaidMembers: string[] = [];
+      let billPayer = 'the payer';
+      let billTitle = 'Office Lunch';
+
+      for (const exp of targetExpenses) {
+        billPayer = exp.paidBy.username ? `@${exp.paidBy.username}` : exp.paidBy.name;
+        billTitle = exp.note;
+        for (const p of exp.participants) {
+          if (p.status === 'unpaid') {
+            unpaidMembers.push(p.username ? `@${p.username}` : p.name);
+          }
+        }
+      }
+
+      if (unpaidMembers.length > 0) {
+        const safePayer = escapeMarkdown(billPayer);
+        const safeUnpaid = Array.from(new Set(unpaidMembers)).map(m => escapeMarkdown(m)).join(', ');
+        let msg = `🔔 **REMINDER: UNPAID LUNCH BILL SHARE**\n`;
+        msg += `──────────────────────\n`;
+        msg += `📢 Attention ${safeUnpaid}!\n`;
+        msg += `Please send your share for **${escapeMarkdown(billTitle)}** to **${safePayer}**.\n`;
+        msg += `Once sent, tap *Mark I Have Paid* on the bill card!`;
+        await this.sendTelegramMessage(chatId, msg, { parse_mode: 'Markdown' });
+        return;
+      }
+
       await this.sendTelegramMessage(chatId, `🟢 **All group expenses are fully evened out & paid!** No pending reminders.`);
       return;
     }
@@ -569,11 +605,13 @@ export class TelegramGroupBotHandler {
     let msg = `🔔 **INDIVIDUAL LUNCH BILL REMINDERS**\n`;
     msg += `──────────────────────\n`;
     if (customText && customText.trim().length > 0) {
-      msg += `📌 **Note:** ${customText}\n\n`;
+      msg += `📌 **Note:** ${escapeMarkdown(customText)}\n\n`;
     }
 
     for (const s of settlements) {
-      msg += `👉 **${s.fromUser}**: Friendly ping! You owe **${s.toUser}** exact net amount of **${s.amount.toLocaleString()} PKR**.\n`;
+      const safeFrom = escapeMarkdown(s.fromUser);
+      const safeTo = escapeMarkdown(s.toUser);
+      msg += `👉 **${safeFrom}**: Friendly ping! You owe **${safeTo}** exact net amount of **${s.amount.toLocaleString()} PKR**.\n`;
     }
 
     msg += `\n*Please transfer via Raast / JazzCash / EasyPaisa and tap 'Mark I Have Paid' on bill cards!*`;
@@ -698,7 +736,7 @@ export class TelegramGroupBotHandler {
       await this.sendTelegramMessage(chatId, `📲 **Payment Details for ${safePayer}:**\nSend Raast / JazzCash / EasyPaisa transfer to ${safePayer}. Once transferred, tap *Mark I Have Paid*!`, { parse_mode: 'Markdown' });
     } else if (action === 'g_remind_unpaid') {
       await this.answerCallback(callbackId, `🔔 Sent reminder to unpaid members!`);
-      await this.sendGroupReminder(chatId);
+      await this.sendGroupReminder(chatId, undefined, expId);
     } else if (action === 'g_show_ledger') {
       await this.answerCallback(callbackId, `📊 Displaying net group matrix`);
       await this.presentGroupBalanceMatrix(chatId);
