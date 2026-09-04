@@ -1,6 +1,7 @@
 import { Env } from '../db/types';
 import { MongoDBClient } from '../db/mongodb';
 import { AIService } from '../services/ai';
+import { PersonResolver } from '../services/personResolver';
 
 export class TelegramCommandHandler {
   static async handleStart(env: Env): Promise<string> {
@@ -13,13 +14,17 @@ I am your personal budget assistant running natively on **Cloudflare Workers AI*
    • *"Spent 1450 at Tehzeeb via JazzCash"*
    • *"Received 5000 from Ali Khan on EasyPaisa"*
    • *"Sent 2000 to Usman via Meezan Bank"*
-2️⃣ **Send Receipt Screenshots:** Upload a photo of any receipt or payment confirmation!
+2️⃣ **Send Receipt Screenshots & Voice Notes:** Upload photos or record audio!
 3️⃣ **Interactive Confirmation:** I will always ask for your confirmation before saving anything!
 
 📋 **Commands:**
 • \`/summary\` - View monthly stats & spending breakdown
 • \`/accounts\` - View JazzCash, EasyPaisa, Bank & Cash balances
+• \`/setbalance <Account> <Amount>\` - Set exact account starting balance
+• \`/transfer <FromAccount> <ToAccount> <Amount>\` - Transfer between accounts
+• \`/settle <PersonName> [Amount]\` - Clear or update debt with a person
 • \`/persons\` - View counterparties & who owes what
+• \`/report\` - Generate formatted monthly financial report
 • \`/query <question>\` - Ask AI any question about your expenses
 • \`/help\` - View this help guide`;
   }
@@ -96,6 +101,108 @@ I am your personal budget assistant running natively on **Cloudflare Workers AI*
     return `✅ **Account Balance Updated!**\n──────────────────────\n🏦 **Account:** ${accountName}\n💰 **New Balance:** ${formatCurrency(newBalance)}`;
   }
 
+  static async handleTransfer(db: MongoDBClient, args: string): Promise<string> {
+    const parts = args.trim().split(/\s+/);
+    if (parts.length < 3) {
+      return `⚠️ **Usage:** \`/transfer <FromAccount> <ToAccount> <Amount>\`\n\n*Examples:*\n• \`/transfer JazzCash Meezan 10000\`\n• \`/transfer EasyPaisa Cash 5000\``;
+    }
+
+    const amount = parseFloat(parts[parts.length - 1].replace(/,/g, ''));
+    const fromAccount = parts[0];
+    const toAccount = parts[1];
+
+    if (isNaN(amount) || amount <= 0) {
+      return `❌ Invalid transfer amount.`;
+    }
+
+    // Deduct from sender account, add to receiver account
+    await db.updateAccountBalance(fromAccount, -amount);
+    await db.updateAccountBalance(toAccount, amount);
+
+    // Record internal transfer transaction
+    await db.createTransaction({
+      type: 'transfer',
+      amount,
+      currency: 'PKR',
+      category: 'Internal Transfer',
+      account: fromAccount,
+      note: `Transferred ${amount} PKR to ${toAccount}`,
+      rawText: `/transfer ${fromAccount} ${toAccount} ${amount}`,
+      status: 'confirmed',
+      timestamp: new Date().toISOString()
+    });
+
+    return `🔄 **Internal Account Transfer Completed!**\n──────────────────────\n📤 **From:** ${fromAccount}\n📥 **To:** ${toAccount}\n💰 **Amount:** ${formatCurrency(amount)}`;
+  }
+
+  static async handleSettle(db: MongoDBClient, args: string): Promise<string> {
+    const parts = args.trim().split(/\s+/);
+    if (!args || parts.length === 0) {
+      return `⚠️ **Usage:** \`/settle <PersonName> [Amount]\`\n\n*Examples:*\n• \`/settle Ali\` (Clears all debt with Ali)\n• \`/settle Ali 2500\` (Settles 2500 PKR with Ali)`;
+    }
+
+    let personName = parts[0];
+    let settleAmount: number | undefined = undefined;
+
+    if (parts.length > 1 && !isNaN(parseFloat(parts[parts.length - 1]))) {
+      settleAmount = parseFloat(parts[parts.length - 1]);
+      personName = parts.slice(0, parts.length - 1).join(' ');
+    }
+
+    const resolved = await PersonResolver.resolvePerson(db, personName);
+    if (!resolved.person || !resolved.person._id) {
+      return `👤 Person "${personName}" not found in your ledger.`;
+    }
+
+    const currentBalance = resolved.person.netBalance;
+    if (settleAmount === undefined) {
+      // Clear entire debt
+      await db.updatePersonBalance(resolved.person._id, -currentBalance);
+      return `🤝 **Ledger Settled!**\n──────────────────────\n👤 **Person:** ${resolved.person.name}\n⚖️ **Previous Balance:** ${formatCurrency(currentBalance)}\n🟢 **New Balance:** 0 PKR (Fully Settled)`;
+    } else {
+      // Partially settle debt
+      const delta = currentBalance > 0 ? -settleAmount : settleAmount;
+      await db.updatePersonBalance(resolved.person._id, delta);
+      return `🤝 **Debt Payment Logged!**\n──────────────────────\n👤 **Person:** ${resolved.person.name}\n💰 **Settled Amount:** ${formatCurrency(settleAmount)}\n🟢 **Remaining Balance:** ${formatCurrency(currentBalance + delta)}`;
+    }
+  }
+
+  static async handleReport(env: Env, db: MongoDBClient): Promise<string> {
+    const currentMonth = new Date().toISOString().substring(0, 7);
+    const stats = await db.getMonthlyStats(currentMonth);
+    const accounts = await db.getAllAccounts();
+    const persons = await db.getAllPersons();
+
+    const netSavings = stats.totalIncome - stats.totalExpense;
+
+    let report = `📑 **EXECUTIVE FINANCIAL REPORT — ${getFormattedMonthName(currentMonth)}**\n`;
+    report += `==================================\n\n`;
+    report += `💵 **Income:** ${formatCurrency(stats.totalIncome)}\n`;
+    report += `💸 **Expenses:** ${formatCurrency(stats.totalExpense)}\n`;
+    report += `📈 **Net Position:** ${netSavings >= 0 ? '+' : ''}${formatCurrency(netSavings)}\n\n`;
+
+    report += `🏦 **ACCOUNT BALANCES:**\n`;
+    let totalAssets = 0;
+    for (const acc of accounts) {
+      totalAssets += acc.balance;
+      report += `  • ${acc.name}: ${formatCurrency(acc.balance)}\n`;
+    }
+    report += `  --------------------------------\n`;
+    report += `  💰 Total Liquid Wealth: ${formatCurrency(totalAssets)}\n\n`;
+
+    report += `👤 **COUNTERPARTY LEDGER:**\n`;
+    if (persons.length === 0) {
+      report += `  • No outstanding counterparties.\n`;
+    } else {
+      for (const p of persons) {
+        const bal = p.netBalance > 0 ? `Owes you +${formatCurrency(p.netBalance)}` : p.netBalance < 0 ? `You owe -${formatCurrency(Math.abs(p.netBalance))}` : 'Settled';
+        report += `  • ${p.name}: ${bal}\n`;
+      }
+    }
+
+    return report;
+  }
+
   static async handlePersons(db: MongoDBClient): Promise<string> {
     const persons = await db.getAllPersons();
     let text = `👥 **Person Ledger & Counterparties:**\n`;
@@ -119,6 +226,7 @@ I am your personal budget assistant running natively on **Cloudflare Workers AI*
       text += `  • Aliases: ${p.aliases.join(', ')}\n\n`;
     }
 
+    text += `💡 *To settle debt with someone, use:* \`/settle <PersonName>\``;
     return text;
   }
 
