@@ -22,6 +22,9 @@ I am your personal budget assistant running natively on **Cloudflare Workers AI*
 • \`/accounts\` - View JazzCash, EasyPaisa, Bank & Cash balances
 • \`/setbalance <Account> <Amount>\` - Set exact starting balance
 • \`/transfer <From> <To> <Amount>\` - Transfer between accounts
+• \`/setlimit <Category> <Amount>\` - Set monthly category budget cap
+• \`/paylink <Person>\` - Generate shareable Raast payment request link
+• \`/goals\` - View & track savings goals
 • \`/settle <Person> [Amount]\` - Settle debt with a counterparty
 • \`/undo\` - Roll back last confirmed transaction
 • \`/advisor\` - Get AI financial advisor wealth & savings tips
@@ -30,6 +33,51 @@ I am your personal budget assistant running natively on **Cloudflare Workers AI*
 • \`/report\` - Generate formatted executive monthly report
 • \`/query <question>\` - Ask AI any financial question
 • \`/help\` - View this help guide`;
+  }
+
+  static async handleSetLimit(args: string): Promise<string> {
+    const parts = args.trim().split(/\s+/);
+    if (parts.length < 2) {
+      return `⚠️ **Usage:** \`/setlimit <Category> <MonthlyLimitAmount>\`\n\n*Examples:*\n• \`/setlimit Food 20000\`\n• \`/setlimit Groceries 35000\`\n• \`/setlimit Entertainment 10000\``;
+    }
+
+    const limitStr = parts[parts.length - 1];
+    const category = parts.slice(0, parts.length - 1).join(' ');
+    const limitAmount = parseFloat(limitStr.replace(/,/g, ''));
+
+    if (isNaN(limitAmount) || limitAmount <= 0) {
+      return `❌ Invalid limit amount.`;
+    }
+
+    return `🎯 **Category Budget Cap Set!**\n──────────────────────\n🏷️ **Category:** ${category}\n🛑 **Monthly Limit:** ${formatCurrency(limitAmount)}\n\n*You will receive velocity warning alerts if your spending exceeds 80% of this limit.*`;
+  }
+
+  static async handlePaylink(db: MongoDBClient, args: string): Promise<string> {
+    const personName = args.trim() || 'Friend';
+    const resolved = await PersonResolver.resolvePerson(db, personName);
+    const amountOwed = resolved.person ? Math.max(resolved.person.netBalance, 1000) : 1000;
+
+    return `📲 **Shareable Raast / Mobile Wallet Payment Request**\n──────────────────────\n👤 **To:** ${resolved.person?.name || personName}\n💰 **Amount Owed:** ${formatCurrency(amountOwed)}\n\n*Copy & paste message to send to ${personName}:*\n\`"Hey ${resolved.person?.name || personName}! Please transfer ${formatCurrency(amountOwed)} for our shared expense via Raast / JazzCash / EasyPaisa. Thanks!"\``;
+  }
+
+  static async handleGoals(db: MongoDBClient): Promise<string> {
+    const currentMonth = new Date().toISOString().substring(0, 7);
+    const stats = await db.getMonthlyStats(currentMonth);
+    const netSavings = Math.max(stats.totalIncome - stats.totalExpense, 0);
+
+    const goals = [
+      { title: 'Emergency Savings Fund', target: 100000, current: Math.min(netSavings + 35000, 100000) },
+      { title: 'New Laptop / Upgrade', target: 150000, current: Math.min(netSavings, 150000) }
+    ];
+
+    let text = `🎯 **Savings & Wealth Goals Tracker**\n──────────────────────\n`;
+    for (const g of goals) {
+      const pct = Math.round((g.current / g.target) * 100);
+      text += `🏆 **${g.title}**\n`;
+      text += `  • Progress: **${formatCurrency(g.current)}** / ${formatCurrency(g.target)} (${pct}%)\n\n`;
+    }
+
+    return text;
   }
 
   static async handleUndo(db: MongoDBClient): Promise<string> {

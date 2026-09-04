@@ -76,6 +76,12 @@ export class TelegramBotHandler {
         responseText = await TelegramCommandHandler.handleSetBalance(this.db, args);
       } else if (command === '/transfer') {
         responseText = await TelegramCommandHandler.handleTransfer(this.db, args);
+      } else if (command === '/setlimit') {
+        responseText = await TelegramCommandHandler.handleSetLimit(args);
+      } else if (command === '/paylink') {
+        responseText = await TelegramCommandHandler.handlePaylink(this.db, args);
+      } else if (command === '/goals') {
+        responseText = await TelegramCommandHandler.handleGoals(this.db);
       } else if (command === '/settle') {
         responseText = await TelegramCommandHandler.handleSettle(this.db, args);
       } else if (command === '/undo') {
