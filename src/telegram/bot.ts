@@ -59,6 +59,8 @@ export class TelegramBotHandler {
         responseText = await TelegramCommandHandler.handleSummary(this.env, this.db);
       } else if (command === '/accounts') {
         responseText = await TelegramCommandHandler.handleAccounts(this.db);
+      } else if (command === '/setbalance') {
+        responseText = await TelegramCommandHandler.handleSetBalance(this.db, args);
       } else if (command === '/persons') {
         responseText = await TelegramCommandHandler.handlePersons(this.db);
       } else if (command === '/query') {

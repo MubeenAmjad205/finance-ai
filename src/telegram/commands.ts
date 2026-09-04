@@ -73,8 +73,27 @@ I am your personal budget assistant running natively on **Cloudflare Workers AI*
     }
 
     text += `──────────────────────\n`;
-    text += `💎 **Total Liquid Balance:** ${formatCurrency(totalAssets)}`;
+    text += `💎 **Total Liquid Balance:** ${formatCurrency(totalAssets)}\n\n`;
+    text += `💡 *To set an exact balance, use:* \`/setbalance <Account> <Amount>\`\n*Example:* \`/setbalance JazzCash 25000\``;
     return text;
+  }
+
+  static async handleSetBalance(db: MongoDBClient, args: string): Promise<string> {
+    const parts = args.trim().split(/\s+/);
+    if (parts.length < 2) {
+      return `⚠️ **Usage:** \`/setbalance <AccountName> <Amount>\`\n\n*Examples:*\n• \`/setbalance JazzCash 25000\`\n• \`/setbalance Meezan Bank 150000\`\n• \`/setbalance EasyPaisa 12000\`\n• \`/setbalance Cash 5000\``;
+    }
+
+    const amountStr = parts[parts.length - 1];
+    const accountName = parts.slice(0, parts.length - 1).join(' ');
+    const newBalance = parseFloat(amountStr.replace(/,/g, ''));
+
+    if (isNaN(newBalance)) {
+      return `❌ Invalid amount: "${amountStr}". Please enter a valid number.`;
+    }
+
+    await db.setAccountBalance(accountName, newBalance);
+    return `✅ **Account Balance Updated!**\n──────────────────────\n🏦 **Account:** ${accountName}\n💰 **New Balance:** ${formatCurrency(newBalance)}`;
   }
 
   static async handlePersons(db: MongoDBClient): Promise<string> {
