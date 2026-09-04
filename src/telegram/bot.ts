@@ -173,8 +173,23 @@ export class TelegramBotHandler {
       return;
     }
 
-    // 6. Handle Standard Text Input
+    // 6. Handle Standard Text Input (Smart Intent Classifier)
     if (text.trim().length > 0) {
+      const intent = AIService.detectMessageIntent(text);
+
+      if (intent === 'chat') {
+        const chatReply = await AIService.generateChatResponse(this.env, text);
+        await this.sendTelegramMessage(chatId, chatReply, { parse_mode: 'Markdown' });
+        return;
+      }
+
+      if (intent === 'question') {
+        const queryReply = await TelegramCommandHandler.handleQuery(this.env, this.db, text);
+        await this.sendTelegramMessage(chatId, queryReply, { parse_mode: 'Markdown' });
+        return;
+      }
+
+      // Financial Transaction Logging
       await this.sendTelegramMessage(chatId, `🧠 Analyzing transaction with Cloudflare Workers AI...`);
       const parsedResult = await AIService.parseTransactionText(this.env, text);
       await this.presentTransactionConfirmation(chatId, parsedResult, text, msg.message_id);

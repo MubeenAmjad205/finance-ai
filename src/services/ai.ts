@@ -27,6 +27,62 @@ const FALLBACK_EXCHANGE_RATES: Record<string, number> = {
 
 export class AIService {
   /**
+   * Detect message intent: 'chat' (greetings/general chat), 'question' (financial query), or 'transaction' (logging expense/income)
+   */
+  static detectMessageIntent(text: string): 'chat' | 'question' | 'transaction' {
+    const lower = text.trim().toLowerCase();
+
+    // 1. General Greetings & Small Talk
+    const chatPhrases = ['hi', 'hello', 'hey', 'how are you', 'who are you', 'what can you do', 'good morning', 'good evening', 'thanks', 'thank you', 'ok', 'okay', 'bye'];
+    if (chatPhrases.includes(lower) || lower.startsWith('hi ') || lower.startsWith('hello ') || lower.startsWith('hey ')) {
+      return 'chat';
+    }
+
+    // 2. Financial Questions & Queries
+    if (lower.includes('how much') || lower.includes('what is my') || lower.includes('show my') || lower.includes('tell me') || lower.endsWith('?')) {
+      return 'question';
+    }
+
+    // 3. Transactions (contains digits or financial action keywords)
+    const hasNumbers = /\d+/.test(lower);
+    const hasTxKeywords = lower.includes('spent') || lower.includes('paid') || lower.includes('received') || lower.includes('sent') || lower.includes('bheja') || lower.includes('milay') || lower.includes('easypaisa') || lower.includes('jazzcash') || lower.includes('meezan') || lower.includes('hbl') || lower.includes('cash');
+
+    if (hasNumbers || hasTxKeywords) {
+      return 'transaction';
+    }
+
+    return 'chat';
+  }
+
+  /**
+   * Conversational Chat Response Generator
+   */
+  static async generateChatResponse(env: Env, text: string): Promise<string> {
+    const prompt = `You are a friendly personal finance AI assistant for Pakistani users.
+User Message: "${text}"
+
+Reply in a warm, helpful, human-like tone in 1-2 short sentences. Mention that you can track their expenses, voice notes, receipts, and account balances.`;
+
+    try {
+      if (env.AI && typeof env.AI.run === 'function') {
+        const response: any = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 150
+        });
+
+        const reply = response?.response || response?.result;
+        if (reply && typeof reply === 'string') {
+          return reply.trim();
+        }
+      }
+    } catch (err) {
+      console.error('[Workers AI Chat Response Error]:', err);
+    }
+
+    return `Hello! 👋 I am your Personal Finance AI assistant. You can tell me expenses like *"Spent 1450 at Tehzeeb via JazzCash"*, send voice notes, upload receipts, or ask questions!`;
+  }
+
+  /**
    * Transcribe Voice Note Audio Buffer using Cloudflare Workers AI Whisper Model (@cf/openai/whisper)
    */
   static async transcribeVoiceNote(env: Env, audioBuffer: ArrayBuffer): Promise<string> {
