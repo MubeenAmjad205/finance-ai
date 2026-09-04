@@ -692,7 +692,7 @@ export class TelegramGroupBotHandler {
     } else if (action === 'g_pay_info') {
       const expenses = await this.getGroupExpenses(chatId);
       const exp = expenses.find(e => e._id === expId);
-      const rawPayer = exp ? (exp.paidBy.username ? `@${exp.paidBy.username}` : exp.paidBy.name) : (parts[1] || 'Payer');
+      const rawPayer = exp ? (exp.paidBy.username ? `@${exp.paidBy.username}` : exp.paidBy.name) : 'Payer';
       const safePayer = escapeMarkdown(rawPayer);
       await this.answerCallback(callbackId, `📲 Send payment to ${rawPayer}`);
       await this.sendTelegramMessage(chatId, `📲 **Payment Details for ${safePayer}:**\nSend Raast / JazzCash / EasyPaisa transfer to ${safePayer}. Once transferred, tap *Mark I Have Paid*!`, { parse_mode: 'Markdown' });

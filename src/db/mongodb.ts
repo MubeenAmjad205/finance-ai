@@ -244,6 +244,15 @@ export class MongoDBClient {
   }
 
   // --- Group Expenses ---
+  private buildGroupIdFilter(groupId: string | number) {
+    const strVal = String(groupId);
+    const numVal = Number(groupId);
+    if (!isNaN(numVal)) {
+      return { $or: [{ groupId: strVal }, { groupId: numVal }] };
+    }
+    return { groupId: strVal };
+  }
+
   async createGroupExpense(exp: any): Promise<string> {
     const doc = { ...exp, createdAt: new Date().toISOString() };
     if (this.isConfigured) {
@@ -256,7 +265,7 @@ export class MongoDBClient {
   async getGroupExpensesByGroupId(groupId: string | number): Promise<any[]> {
     if (this.isConfigured) {
       const res = await this.requestDataApi('find', 'group_expenses', {
-        filter: { groupId: String(groupId) },
+        filter: this.buildGroupIdFilter(groupId),
         sort: { timestamp: -1 }
       });
       return res?.documents || [];
@@ -288,7 +297,7 @@ export class MongoDBClient {
   async getLastGroupExpense(groupId: string | number): Promise<any | null> {
     if (this.isConfigured) {
       const res = await this.requestDataApi('find', 'group_expenses', {
-        filter: { groupId: String(groupId) },
+        filter: this.buildGroupIdFilter(groupId),
         sort: { timestamp: -1 },
         limit: 1
       });
