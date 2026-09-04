@@ -5,6 +5,7 @@ import { PersonResolver } from '../services/personResolver';
 import { GroupSplitService } from '../services/groupSplit';
 import { PDFStatementParser } from '../services/pdfParser';
 import { TelegramCommandHandler } from './commands';
+import { TelegramGroupBotHandler } from './groupBot';
 
 export class TelegramBotHandler {
   private env: Env;
@@ -44,12 +45,22 @@ export class TelegramBotHandler {
 
   private async handleIncomingMessage(msg: any): Promise<void> {
     const chatId = msg.chat.id;
+    const chatType = msg.chat?.type;
     const text: string = msg.text || msg.caption || '';
+
+    // Auto-delegate group chats or group commands to TelegramGroupBotHandler
+    const rawCmd = text.trim().split(/\s+/)[0]?.toLowerCase() || '';
+    const isGroupCmd = rawCmd.startsWith('/group') || rawCmd.startsWith('/ledger') || rawCmd.startsWith('/member');
+    if (chatType === 'group' || chatType === 'supergroup' || isGroupCmd) {
+      const groupHandler = new TelegramGroupBotHandler(this.env);
+      await groupHandler.handleGroupMessage(msg);
+      return;
+    }
 
     // 1. Handle Slash Commands
     if (text.startsWith('/')) {
       const parts = text.trim().split(/\s+/);
-      const command = parts[0].toLowerCase();
+      const command = parts[0].toLowerCase().split('@')[0];
       const args = parts.slice(1).join(' ');
 
       let responseText = '';
@@ -311,10 +322,18 @@ ${personMatchInfo ? personMatchInfo + '\n' : ''}${parsed.tags ? `🏷️ **Tags:
   }
 
   private async handleCallbackQuery(cb: any): Promise<void> {
+    const data: string = cb.data || '';
+    const chatType = cb.message?.chat?.type;
+
+    if (chatType === 'group' || chatType === 'supergroup' || data.startsWith('g_')) {
+      const groupHandler = new TelegramGroupBotHandler(this.env);
+      await groupHandler.handleGroupCallbackQuery(cb);
+      return;
+    }
+
     const callbackId = cb.id;
     const chatId = cb.message.chat.id;
     const messageId = cb.message.message_id;
-    const data: string = cb.data || '';
 
     const parts = data.split(':');
     const action = parts[0];

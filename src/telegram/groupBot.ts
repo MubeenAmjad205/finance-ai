@@ -60,7 +60,7 @@ export class TelegramGroupBotHandler {
     await this.db.createGroupExpense(exp);
   }
 
-  private async handleGroupMessage(msg: any): Promise<void> {
+  public async handleGroupMessage(msg: any): Promise<void> {
     const chatId = msg.chat.id;
     const text: string = msg.text || msg.caption || '';
     const sender = msg.from;
@@ -69,7 +69,7 @@ export class TelegramGroupBotHandler {
     // 1. Group Slash Commands (Full Parity with Personal Commands)
     if (text.startsWith('/')) {
       const parts = text.trim().split(/\s+/);
-      const command = parts[0].toLowerCase();
+      const command = parts[0].toLowerCase().split('@')[0];
       const args = parts.slice(1).join(' ');
 
       if (command === '/groupledger' || command === '/ledger' || command === '/groupbalance') {
@@ -624,7 +624,7 @@ export class TelegramGroupBotHandler {
     await this.sendTelegramMessage(chatId, answer, { parse_mode: 'Markdown' });
   }
 
-  private async handleGroupCallbackQuery(cb: any): Promise<void> {
+  public async handleGroupCallbackQuery(cb: any): Promise<void> {
     const callbackId = cb.id;
     const chatId = cb.message.chat.id;
     const messageId = cb.message.message_id;
