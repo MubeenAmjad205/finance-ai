@@ -15,7 +15,6 @@ binding = "AI"
 [vars]
 ENVIRONMENT = "production"
 DEFAULT_CURRENCY = "PKR"
-ENABLE_AUTO_OCR = "true"
 
 # Secrets required (Deploy via `npx wrangler secret put <KEY>`):
 # - TELEGRAM_BOT_TOKEN

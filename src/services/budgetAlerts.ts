@@ -1,8 +1,9 @@
 import { BudgetCap } from '../db/types';
+import { MongoDBClient } from '../db/mongodb';
 
 export class BudgetAlertService {
   /**
-   * Default category spending caps for personal finance tracking
+   * Default category spending caps
    */
   static getDefaultCaps(): BudgetCap[] {
     return [
@@ -14,10 +15,17 @@ export class BudgetAlertService {
   }
 
   /**
-   * Check if any category has exceeded its spending velocity / limit threshold
+   * Check if any category has exceeded its spending limit or threshold
    */
-  static checkBudgetAlerts(categoryBreakdown: Record<string, number>): string[] {
-    const caps = this.getDefaultCaps();
+  static async checkBudgetAlerts(
+    db: MongoDBClient,
+    categoryBreakdown: Record<string, number>
+  ): Promise<string[]> {
+    let caps = await db.getBudgetCaps();
+    if (!caps || caps.length === 0) {
+      caps = this.getDefaultCaps();
+    }
+
     const alerts: string[] = [];
 
     for (const cap of caps) {
@@ -25,9 +33,13 @@ export class BudgetAlertService {
       const pctUsed = Math.round((currentSpent / cap.monthlyLimit) * 100);
 
       if (pctUsed >= 100) {
-        alerts.push(`🚨 **Budget Exceeded:** You spent ${currentSpent.toLocaleString()} PKR on **${cap.category}** (Limit: ${cap.monthlyLimit.toLocaleString()} PKR)!`);
+        alerts.push(
+          `🚨 **Budget Exceeded:** You spent ${currentSpent.toLocaleString()} PKR on **${cap.category}** (Limit: ${cap.monthlyLimit.toLocaleString()} PKR)!`
+        );
       } else if (pctUsed >= cap.alertThresholdPct) {
-        alerts.push(`⚠️ **Warning:** You have used ${pctUsed}% of your **${cap.category}** budget (${currentSpent.toLocaleString()} / ${cap.monthlyLimit.toLocaleString()} PKR).`);
+        alerts.push(
+          `⚠️ **Warning:** You have used ${pctUsed}% of your **${cap.category}** budget (${currentSpent.toLocaleString()} / ${cap.monthlyLimit.toLocaleString()} PKR).`
+        );
       }
     }
 

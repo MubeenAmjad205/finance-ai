@@ -69,24 +69,19 @@ export class PersonResolver {
   }
 
   /**
-   * Execute human-approved merge action
+   * Execute human-approved merge action and persist alias/merged state
    */
   static async executeMerge(
-    db: MongoDBClient, 
-    primaryPersonId: string, 
+    db: MongoDBClient,
+    primaryPersonId: string,
     aliasToAdd: string,
     targetPersonIdToDelete?: string
   ): Promise<Person | null> {
     if (targetPersonIdToDelete && targetPersonIdToDelete !== primaryPersonId) {
       await db.mergePersons(primaryPersonId, targetPersonIdToDelete, aliasToAdd);
     } else {
-      // Simply add alias to primary person
-      const persons = await db.getAllPersons();
-      const primary = persons.find(p => p._id === primaryPersonId);
-      if (primary) {
-        const updatedAliases = Array.from(new Set([...primary.aliases, aliasToAdd]));
-        // Note: MongoDBClient update handled
-      }
+      // Add alias to primary person in database
+      await db.addPersonAlias(primaryPersonId, aliasToAdd);
     }
 
     const updatedList = await db.getAllPersons();

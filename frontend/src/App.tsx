@@ -16,6 +16,7 @@ export default function App() {
   const [data, setData] = useState<StatsData | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'accounts' | 'persons' | 'export'>('overview');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchStats();
@@ -23,17 +24,30 @@ export default function App() {
 
   const fetchStats = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch('/api/stats');
       if (res.ok) {
         const json = await res.json();
         setData(json);
+      } else {
+        setError(`Failed to fetch stats (HTTP ${res.status})`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fetch stats:', err);
+      setError(err.message || 'Network error while loading stats');
     } finally {
       setLoading(false);
     }
+  };
+
+  const sanitizeCsvCell = (val: any): string => {
+    if (val === null || val === undefined) return '""';
+    let str = String(val).trim();
+    if (/^[=+\-@\t\r]/.test(str)) {
+      str = "'" + str;
+    }
+    return `"${str.replace(/"/g, '""')}"`;
   };
 
   const exportCsv = () => {
@@ -42,20 +56,27 @@ export default function App() {
       ['Account Name', 'Type', 'Balance'],
       ...data.accounts.map(a => [a.name, a.type, a.balance])
     ];
-    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map(e => e.join(',')).join('\n');
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = rows.map(r => r.map(sanitizeCsvCell).join(',')).join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
+    link.setAttribute('href', url);
     link.setAttribute('download', `Finance_AI_Export_${data.month}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const netSavings = (data?.stats.totalIncome || 0) - (data?.stats.totalExpense || 0);
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '1.5rem 1rem' }}>
+      {error && (
+        <div style={{ background: 'rgba(239, 68, 68, 0.2)', border: '1px solid #ef4444', color: '#fca5a5', padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.85rem' }}>
+          ⚠️ {error}
+        </div>
+      )}
       {/* Header */}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

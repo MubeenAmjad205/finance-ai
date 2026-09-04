@@ -1,4 +1,5 @@
 import { Transaction, Person, Account } from '../db/types';
+import { escapeHtml } from './sanitize';
 
 export function renderDashboardHtml(
   monthName: string,
@@ -336,7 +337,7 @@ export function renderDashboardHtml(
     <div class="accounts-grid">
       ${accounts.map(acc => `
         <div class="account-card">
-          <div class="account-name">${getAccIcon(acc.name)} ${acc.name}</div>
+          <div class="account-name">${getAccIcon(acc.name)} ${escapeHtml(acc.name)}</div>
           <div class="account-balance">${formatPkr(acc.balance)}</div>
         </div>
       `).join('')}
@@ -362,12 +363,12 @@ export function renderDashboardHtml(
               ${recentTransactions.length === 0 ? '<tr><td colspan="5">No transactions recorded yet. Message your Telegram bot to add one!</td></tr>' : ''}
               ${recentTransactions.map(tx => `
                 <tr>
-                  <td><span class="tx-badge badge-${tx.type}">${tx.type}</span></td>
+                  <td><span class="tx-badge badge-${escapeHtml(tx.type)}">${escapeHtml(tx.type)}</span></td>
                   <td>
                     <div style="font-weight: 500;">${escapeHtml(tx.note || tx.rawText)}</div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted);">${tx.category} ${tx.personName ? '• ' + tx.personName : ''}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(tx.category)} ${tx.personName ? '• ' + escapeHtml(tx.personName) : ''}</div>
                   </td>
-                  <td><span style="font-size: 0.8rem; background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 4px;">${tx.account}</span></td>
+                  <td><span style="font-size: 0.8rem; background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 4px;">${escapeHtml(tx.account)}</span></td>
                   <td style="font-weight: 600; color: ${tx.type === 'income' ? 'var(--accent-green)' : 'var(--text-main)'};">
                     ${tx.type === 'income' ? '+' : '-'}${formatPkr(tx.amount)}
                   </td>
@@ -389,7 +390,7 @@ export function renderDashboardHtml(
             return `
               <div class="cat-item">
                 <div class="cat-meta">
-                  <span>${cat}</span>
+                  <span>${escapeHtml(cat)}</span>
                   <span style="font-weight: 600;">${formatPkr(amt)} (${pct}%)</span>
                 </div>
                 <div class="cat-bar-bg">
@@ -407,7 +408,7 @@ export function renderDashboardHtml(
             <div class="person-row">
               <div>
                 <div class="person-name">${escapeHtml(p.name)}</div>
-                <div class="person-aliases">${p.aliases.join(', ')}</div>
+                <div class="person-aliases">${escapeHtml(p.aliases.join(', '))}</div>
               </div>
               <div style="font-weight: 600; font-size: 0.85rem; color: ${p.netBalance > 0 ? 'var(--accent-green)' : p.netBalance < 0 ? 'var(--accent-red)' : 'var(--text-muted)'};">
                 ${p.netBalance > 0 ? 'Owes +' + formatPkr(p.netBalance) : p.netBalance < 0 ? 'You owe -' + formatPkr(Math.abs(p.netBalance)) : 'Settled'}
@@ -428,10 +429,6 @@ export function renderDashboardHtml(
 
 function formatPkr(num: number): string {
   return new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(num);
-}
-
-function escapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function getAccIcon(acc: string): string {

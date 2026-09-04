@@ -7,7 +7,10 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "build": "wrangler deploy --dry-run"
+    "build": "wrangler deploy --dry-run",
+    "build:frontend": "npm run --prefix frontend build",
+    "build:all": "npm run --prefix frontend build && wrangler deploy --dry-run",
+    "test": "npx tsx scripts/test-services.ts && npm run typecheck"
   },
   "keywords": [
     "cloudflare-workers",
@@ -29,7 +32,7 @@
   },
   "dependencies": {
     "fuse.js": "^7.0.0",
-    "hono": "^4.6.12",
-    "mongodb": "^7.6.0"
+    "hono": "^4.6.12"
   }
 }
+

@@ -1,3 +1,5 @@
+import type { Ai } from '@cloudflare/workers-types';
+
 export type TransactionType = 'expense' | 'income' | 'transfer' | 'debt_given' | 'debt_received' | 'group_split';
 
 export type TransactionStatus = 'pending_confirmation' | 'confirmed' | 'rejected';
@@ -19,7 +21,7 @@ export interface Transaction {
   status: TransactionStatus;
   timestamp: string; // ISO 8601 string
   telegramMessageId?: number;
-  telegramUserId?: number;
+  telegramUserId?: string | number;
   isVoiceNote?: boolean;
   voiceTranscription?: string;
   isRecurring?: boolean;
@@ -59,6 +61,25 @@ export interface BudgetCap {
   category: string;
   monthlyLimit: number;
   alertThresholdPct: number; // e.g. 80 for 80%
+  updatedAt?: string;
+}
+
+export interface Reminder {
+  _id?: string;
+  text: string;
+  chatId?: string | number;
+  dueAt?: string;
+  isTriggered: boolean;
+  createdAt: string;
+}
+
+export interface SavingsGoal {
+  _id?: string;
+  title: string;
+  targetAmount: number;
+  currentAmount: number;
+  updatedAt: string;
+  createdAt: string;
 }
 
 export interface Person {
@@ -121,7 +142,7 @@ export interface GroupAuditLog {
 }
 
 export interface Env {
-  AI: any; // Cloudflare Workers AI Binding
+  AI?: Ai; // Typed Cloudflare Workers AI Binding
   ENVIRONMENT?: string;
   DEFAULT_CURRENCY?: string;
   ENABLE_AUTO_OCR?: string;

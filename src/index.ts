@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { getCookie, setCookie } from 'hono/cookie';
 import { Env } from './db/types';
 import { MongoDBClient } from './db/mongodb';
 import { TelegramBotHandler } from './telegram/bot';
@@ -7,6 +8,39 @@ import { ScheduledTaskHandler } from './services/scheduler';
 import { renderDashboardHtml } from './ui/dashboard';
 
 const app = new Hono<{ Bindings: Env }>();
+
+// Global Error Handler
+app.onError((err, c) => {
+  console.error('[Hono Error Caught]:', err);
+  return c.json(
+    {
+      status: 'error',
+      message: err.message || 'Internal Server Error'
+    },
+    500
+  );
+});
+
+/**
+ * Timing-safe string comparison to prevent side-channel timing attacks
+ */
+async function isPasscodeValid(provided: string | undefined, expected: string | undefined): Promise<boolean> {
+  if (!expected) return true;
+  if (!provided) return false;
+
+  const encoder = new TextEncoder();
+  const a = await crypto.subtle.digest('SHA-256', encoder.encode(provided));
+  const b = await crypto.subtle.digest('SHA-256', encoder.encode(expected));
+  const aArr = new Uint8Array(a);
+  const bArr = new Uint8Array(b);
+
+  if (aArr.length !== bArr.length) return false;
+  let diff = 0;
+  for (let i = 0; i < aArr.length; i++) {
+    diff |= aArr[i] ^ bArr[i];
+  }
+  return diff === 0;
+}
 
 // 1. Health Check Endpoint
 app.get('/api/health', (c) => {
@@ -156,21 +190,39 @@ app.get('/api/stats', async (c) => {
   });
 });
 
-// 5. Minimal Web Dashboard UI
+// 5. Minimal Web Dashboard UI (GET)
 app.get('/', async (c) => {
   const configuredPasscode = c.env.DASHBOARD_PASSCODE;
-  const reqPasscode = c.req.query('passcode') || c.req.header('x-passcode');
+  let isAuthenticated = !configuredPasscode;
 
-  if (configuredPasscode && reqPasscode !== configuredPasscode) {
+  if (configuredPasscode) {
+    const cookieSession = getCookie(c, 'finance_ai_session');
+    const reqPasscode = c.req.query('passcode') || c.req.header('x-passcode');
+
+    if (cookieSession === 'authenticated') {
+      isAuthenticated = true;
+    } else if (reqPasscode && (await isPasscodeValid(reqPasscode, configuredPasscode))) {
+      isAuthenticated = true;
+      setCookie(c, 'finance_ai_session', 'authenticated', {
+        path: '/',
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+        maxAge: 86400 * 30
+      });
+    }
+  }
+
+  if (!isAuthenticated) {
     return c.html(`
       <!DOCTYPE html>
       <html>
       <head>
         <title>Finance AI — Authentication Required</title>
         <style>
-          body { background: #0b0f17; color: #fff; font-family: sans-serif; display: flex; height: 100vh; align-items: center; justify-content: center; }
-          .card { background: #161f2f; padding: 2rem; border-radius: 12px; text-align: center; max-width: 360px; }
-          input { width: 100%; padding: 0.75rem; margin: 1rem 0; border-radius: 8px; border: 1px solid #374151; background: #0b0f17; color: #fff; }
+          body { background: #0b0f17; color: #fff; font-family: sans-serif; display: flex; height: 100vh; align-items: center; justify-content: center; margin: 0; }
+          .card { background: #161f2f; padding: 2rem; border-radius: 12px; text-align: center; max-width: 360px; width: 90%; }
+          input { width: 100%; box-sizing: border-box; padding: 0.75rem; margin: 1rem 0; border-radius: 8px; border: 1px solid #374151; background: #0b0f17; color: #fff; }
           button { width: 100%; padding: 0.75rem; border-radius: 8px; border: none; background: #3b82f6; color: #fff; font-weight: bold; cursor: pointer; }
         </style>
       </head>
@@ -178,7 +230,7 @@ app.get('/', async (c) => {
         <div class="card">
           <h2>🔒 Finance AI Dashboard</h2>
           <p style="font-size: 0.85rem; color: #9ca3af; margin-top: 0.5rem;">Enter your passcode to view stats.</p>
-          <form method="GET">
+          <form method="POST" action="/">
             <input type="password" name="passcode" placeholder="Enter Passcode" required autocomplete="current-password" />
             <button type="submit">Access Dashboard</button>
           </form>
@@ -190,7 +242,7 @@ app.get('/', async (c) => {
 
   const db = new MongoDBClient(c.env);
   const currentMonth = new Date().toISOString().substring(0, 7);
-  
+
   const [stats, accounts, persons, recentTransactions] = await Promise.all([
     db.getMonthlyStats(currentMonth),
     db.getAllAccounts(),
@@ -202,6 +254,26 @@ app.get('/', async (c) => {
   const html = renderDashboardHtml(monthName, stats, accounts, persons, recentTransactions);
 
   return c.html(html);
+});
+
+// 5b. Web Dashboard Form Login Handler (POST)
+app.post('/', async (c) => {
+  const configuredPasscode = c.env.DASHBOARD_PASSCODE;
+  const body = await c.req.parseBody();
+  const provided = String(body['passcode'] || '');
+
+  if (await isPasscodeValid(provided, configuredPasscode)) {
+    setCookie(c, 'finance_ai_session', 'authenticated', {
+      path: '/',
+      httpOnly: true,
+      secure: true,
+      sameSite: 'Lax',
+      maxAge: 86400 * 30
+    });
+    return c.redirect('/');
+  }
+
+  return c.redirect('/?error=invalid_passcode');
 });
 
 // Export Worker handler with both fetch and scheduled cron triggers

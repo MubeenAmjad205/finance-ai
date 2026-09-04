@@ -6,16 +6,27 @@ import { GroupSplitService } from '../services/groupSplit';
 import { PDFStatementParser } from '../services/pdfParser';
 import { TelegramCommandHandler } from './commands';
 import { TelegramGroupBotHandler } from './groupBot';
+import { CallbackQueryHandler } from './callbacks';
 
 export class TelegramBotHandler {
   private env: Env;
   private db: MongoDBClient;
   private botToken: string;
+  private callbacks: CallbackQueryHandler;
 
   constructor(env: Env) {
     this.env = env;
     this.db = new MongoDBClient(env);
     this.botToken = env.TELEGRAM_BOT_TOKEN || '';
+
+    this.callbacks = new CallbackQueryHandler(this.db, {
+      botToken: this.botToken,
+      sendMessage: (chatId, text, opts) => this.sendTelegramMessage(chatId, text, opts),
+      editMessage: (chatId, messageId, text, opts) => this.editTelegramMessage(chatId, messageId, text, opts),
+      answerCallback: (cbId, text) => this.answerCallback(cbId, text),
+      presentTransactionConfirmation: (cId, p, r, m, v, t) =>
+        this.presentTransactionConfirmation(cId, p, r, m, v, t)
+    });
   }
 
   async handleWebhook(request: Request): Promise<Response> {
@@ -88,11 +99,11 @@ export class TelegramBotHandler {
       } else if (command === '/transfer') {
         responseText = await TelegramCommandHandler.handleTransfer(this.db, args);
       } else if (command === '/setlimit') {
-        responseText = await TelegramCommandHandler.handleSetLimit(args);
+        responseText = await TelegramCommandHandler.handleSetLimit(this.db, args);
       } else if (command === '/paylink') {
         responseText = await TelegramCommandHandler.handlePaylink(this.db, args);
       } else if (command === '/goals') {
-        responseText = await TelegramCommandHandler.handleGoals(this.db);
+        responseText = await TelegramCommandHandler.handleGoals(this.db, args);
       } else if (command === '/settle') {
         responseText = await TelegramCommandHandler.handleSettle(this.db, args);
       } else if (command === '/undo') {
@@ -100,7 +111,7 @@ export class TelegramBotHandler {
       } else if (command === '/advisor') {
         responseText = await TelegramCommandHandler.handleAdvisor(this.env, this.db);
       } else if (command === '/remind') {
-        responseText = await TelegramCommandHandler.handleRemind(args);
+        responseText = await TelegramCommandHandler.handleRemind(this.db, args, chatId);
       } else if (command === '/report') {
         responseText = await TelegramCommandHandler.handleReport(this.env, this.db);
       } else if (command === '/persons') {
@@ -331,101 +342,7 @@ ${personMatchInfo ? personMatchInfo + '\n' : ''}${parsed.tags ? `🏷️ **Tags:
       return;
     }
 
-    const callbackId = cb.id;
-    const chatId = cb.message.chat.id;
-    const messageId = cb.message.message_id;
-
-    const parts = data.split(':');
-    const action = parts[0];
-    const txId = parts[1];
-
-    if (action === 'tx_confirm') {
-      const tx = await this.db.getTransactionById(txId);
-      if (tx) {
-        await this.db.updateTransaction(txId, { status: 'confirmed' });
-        const balanceDelta = (tx.type === 'income' || tx.type === 'debt_received') ? tx.amount : -tx.amount;
-        await this.db.updateAccountBalance(tx.account, balanceDelta);
-
-        if (tx.personId) {
-          const personDelta = (tx.type === 'debt_given' || tx.type === 'expense') ? tx.amount : -tx.amount;
-          await this.db.updatePersonBalance(tx.personId, personDelta);
-        } else if (tx.personName) {
-          const newPerson = await this.db.createPerson(tx.personName, tx.account);
-          if (newPerson._id) {
-            await this.db.updateTransaction(txId, { personId: newPerson._id });
-            const personDelta = (tx.type === 'debt_given' || tx.type === 'expense') ? tx.amount : -tx.amount;
-            await this.db.updatePersonBalance(newPerson._id, personDelta);
-          }
-        }
-
-        await this.answerCallback(callbackId, '✅ Transaction saved successfully!');
-        const confirmedText = `✅ **Transaction Confirmed & Recorded!**
-──────────────────────
-💰 **Amount:** ${tx.amount.toLocaleString()} ${tx.currency} (${tx.type.toUpperCase()})
-🏦 **Account Updated:** ${tx.account}
-🏷️ **Category:** ${tx.category}
-${tx.personName ? `👤 **Person Ledger:** ${tx.personName}\n` : ''}🕒 **Timestamp:** ${new Date(tx.timestamp).toLocaleString('en-PK')}
-
-*Record saved to MongoDB Atlas.*`;
-
-        await this.editTelegramMessage(chatId, messageId, confirmedText, { parse_mode: 'Markdown' });
-      }
-    } else if (action === 'person_merge') {
-      const primaryPersonId = parts[2];
-      const aliasToAdd = parts[3];
-
-      await PersonResolver.executeMerge(this.db, primaryPersonId, aliasToAdd);
-      await this.db.updateTransaction(txId, { personId: primaryPersonId });
-
-      await this.answerCallback(callbackId, `🤝 Merged "${aliasToAdd}" with existing profile!`);
-      
-      const tx = await this.db.getTransactionById(txId);
-      if (tx) {
-        await this.db.updateTransaction(txId, { status: 'confirmed' });
-        const balanceDelta = (tx.type === 'income' || tx.type === 'debt_received') ? tx.amount : -tx.amount;
-        await this.db.updateAccountBalance(tx.account, balanceDelta);
-      }
-
-      await this.editTelegramMessage(
-        chatId,
-        messageId,
-        `✅ **Person Merged & Transaction Saved!**\n\nAlias \`${aliasToAdd}\` has been linked to the primary profile. Transaction recorded under selected account.`
-      );
-    } else if (action === 'tx_cancel') {
-      if (txId && txId !== '0') {
-        await this.db.updateTransaction(txId, { status: 'rejected' });
-      }
-      await this.answerCallback(callbackId, '❌ Cancelled.');
-      await this.editTelegramMessage(chatId, messageId, `❌ *Cancelled by user.*`);
-    } else if (action === 'tx_toggle_acc') {
-      const accounts = ['JazzCash', 'EasyPaisa', 'Meezan Bank', 'HBL', 'NayaPay', 'Cash'];
-      const tx = await this.db.getTransactionById(txId);
-      if (tx) {
-        const nextAccIdx = (accounts.indexOf(tx.account) + 1) % accounts.length;
-        const newAcc = accounts[nextAccIdx];
-        await this.db.updateTransaction(txId, { account: newAcc });
-        await this.answerCallback(callbackId, `Switched Account to ${newAcc}`);
-        
-        await this.presentTransactionConfirmation(
-          chatId,
-          {
-            type: tx.type,
-            amount: tx.amount,
-            originalAmount: tx.originalAmount,
-            originalCurrency: tx.originalCurrency,
-            exchangeRate: tx.exchangeRate,
-            currency: tx.currency,
-            category: tx.category,
-            account: newAcc,
-            personName: tx.personName,
-            note: tx.note,
-            confidence: 1
-          },
-          tx.rawText,
-          messageId
-        );
-      }
-    }
+    await this.callbacks.handle(cb);
   }
 
   // --- Telegram API Helpers ---
