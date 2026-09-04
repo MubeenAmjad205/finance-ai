@@ -289,9 +289,10 @@ export class TelegramGroupBotHandler {
     await this.presentGroupExpenseCard(chatId, groupExp);
   }
 
-  private async presentGroupExpenseCard(chatId: number, exp: GroupExpense): Promise<void> {
+  private async presentGroupExpenseCard(chatId: number, exp: GroupExpense, messageIdToEdit?: number): Promise<void> {
     const payerName = exp.paidBy.username ? `@${exp.paidBy.username}` : exp.paidBy.name;
     const perPersonShare = Math.round(exp.totalAmount / (exp.participants.length || 1));
+    const hasUnpaid = exp.participants.some(p => p.status === 'unpaid');
 
     let cardText = `🍔 **OFFICE LUNCH EXPENSE LOGGED**\n`;
     cardText += `──────────────────────\n`;
@@ -306,26 +307,45 @@ export class TelegramGroupBotHandler {
       cardText += `  • ${displayName}: ${statusIcon}\n`;
     }
 
-    cardText += `\n*Tap buttons below to update your payment status:*`;
+    if (hasUnpaid) {
+      cardText += `\n*Tap buttons below to update your payment status:*`;
+    } else {
+      cardText += `\n🟢 **ALL MEMBERS HAVE PAID! (Fully Settled)**`;
+    }
 
-    const inlineKeyboard = [
-      [
+    const inlineKeyboard: any[][] = [];
+
+    if (hasUnpaid) {
+      inlineKeyboard.push([
         { text: `💳 Mark I Have Paid`, callback_data: `g_mark_paid:${exp._id}` },
         { text: `📲 Payment Info`, callback_data: `g_pay_info:${exp.paidBy.name}` }
-      ],
-      [
+      ]);
+      inlineKeyboard.push([
         { text: `🔔 Remind Unpaid`, callback_data: `g_remind_unpaid:${exp._id}` },
         { text: `📊 Full Group Ledger`, callback_data: `g_show_ledger` }
-      ],
-      [
-        { text: `↩️ Roll Back / Delete`, callback_data: `g_undo:${exp._id}` }
-      ]
-    ];
+      ]);
+    } else {
+      inlineKeyboard.push([
+        { text: `📲 Payment Details`, callback_data: `g_pay_info:${exp.paidBy.name}` },
+        { text: `📊 Full Group Ledger`, callback_data: `g_show_ledger` }
+      ]);
+    }
 
-    await this.sendTelegramMessage(chatId, cardText, {
-      parse_mode: 'Markdown',
-      reply_markup: { inline_keyboard: inlineKeyboard }
-    });
+    inlineKeyboard.push([
+      { text: `↩️ Roll Back / Delete`, callback_data: `g_undo:${exp._id}` }
+    ]);
+
+    if (messageIdToEdit) {
+      await this.editTelegramMessage(chatId, messageIdToEdit, cardText, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: inlineKeyboard }
+      });
+    } else {
+      await this.sendTelegramMessage(chatId, cardText, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: inlineKeyboard }
+      });
+    }
   }
 
   private async presentGroupBalanceMatrix(chatId: number): Promise<void> {
@@ -658,7 +678,7 @@ export class TelegramGroupBotHandler {
           }
         }
         await this.answerCallback(callbackId, `✅ Marked ${userName} as paid!`);
-        await this.presentGroupExpenseCard(chatId, exp);
+        await this.presentGroupExpenseCard(chatId, exp, messageId);
       }
     } else if (action === 'g_pay_info') {
       const payer = parts[1] || 'Payer';
@@ -680,6 +700,21 @@ export class TelegramGroupBotHandler {
       await this.answerCallback(callbackId, `❌ Cancelled.`);
       await this.sendTelegramMessage(chatId, `❌ Action cancelled.`);
     }
+  }
+
+  private async editTelegramMessage(chatId: number, messageId: number, text: string, options: Record<string, any> = {}): Promise<void> {
+    if (!this.botToken) return;
+    const url = `https://api.telegram.org/bot${this.botToken}/editMessageText`;
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        ...options
+      })
+    });
   }
 
   private async sendTelegramMessage(chatId: number, text: string, options: Record<string, any> = {}): Promise<void> {
