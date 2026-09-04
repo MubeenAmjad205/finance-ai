@@ -298,6 +298,38 @@ export class MongoDBClient {
   }
 }
 
+/**
+ * Isolated MongoDB Client for Group Bot.
+ * STRICT PRIVACY GUARANTEE: Does NOT expose personal transactions, account balances, or personal counterparties.
+ */
+export class GroupMongoDBClient {
+  private client: MongoDBClient;
+
+  constructor(env: Env) {
+    this.client = new MongoDBClient(env);
+  }
+
+  async createGroupExpense(exp: any): Promise<string> {
+    return await this.client.createGroupExpense(exp);
+  }
+
+  async getGroupExpensesByGroupId(groupId: string | number): Promise<any[]> {
+    return await this.client.getGroupExpensesByGroupId(groupId);
+  }
+
+  async updateGroupExpense(id: string, update: Record<string, any>): Promise<boolean> {
+    return await this.client.updateGroupExpense(id, update);
+  }
+
+  async deleteGroupExpense(id: string): Promise<boolean> {
+    return await this.client.deleteGroupExpense(id);
+  }
+
+  async getLastGroupExpense(groupId: string | number): Promise<any | null> {
+    return await this.client.getLastGroupExpense(groupId);
+  }
+}
+
 function parseAggStats(docs: any[]) {
   let totalIncome = 0;
   let totalExpense = 0;

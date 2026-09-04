@@ -1,5 +1,5 @@
 import { Env } from '../db/types';
-import { MongoDBClient } from '../db/mongodb';
+import { GroupMongoDBClient } from '../db/mongodb';
 import { AIService } from '../services/ai';
 import { PDFStatementParser } from '../services/pdfParser';
 import { GroupExpenseService, GroupExpense, GroupExpenseParticipant } from '../services/groupExpense';
@@ -8,12 +8,12 @@ const inMemoryGroupExpenses: Record<string, GroupExpense[]> = {};
 
 export class TelegramGroupBotHandler {
   private env: Env;
-  private db: MongoDBClient;
+  private db: GroupMongoDBClient;
   private botToken: string;
 
   constructor(env: Env) {
     this.env = env;
-    this.db = new MongoDBClient(env);
+    this.db = new GroupMongoDBClient(env);
     this.botToken = env.TELEGRAM_GROUP_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN || '';
   }
 
@@ -620,7 +620,7 @@ export class TelegramGroupBotHandler {
   private async handleGroupQuery(chatId: number, query: string): Promise<void> {
     const expenses = await this.getGroupExpenses(chatId);
     const contextSummary = `Group Expenses: ${JSON.stringify(expenses)}`;
-    const answer = await AIService.answerFinancialQuery(this.env, query || 'Group summary', contextSummary);
+    const answer = await AIService.answerFinancialQuery(this.env, query || 'Group summary', contextSummary, true);
     await this.sendTelegramMessage(chatId, answer, { parse_mode: 'Markdown' });
   }
 
