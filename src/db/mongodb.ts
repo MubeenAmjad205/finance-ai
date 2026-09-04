@@ -1,43 +1,73 @@
-import { Env, Transaction, Person, Account, MergeProposal } from './types';
+import { MongoClient, Db } from 'mongodb';
+import { Env, Transaction, Person, Account } from './types';
+
+let cachedClient: MongoClient | null = null;
+let cachedDb: Db | null = null;
 
 /**
- * MongoDB Atlas Data API Client optimized for Cloudflare Workers (Fetch API).
- * Zero cold starts, lightweight, and fully serverless compatible.
+ * MongoDB Client supporting both:
+ * 1. Standard MongoDB Connection Strings (mongodb://... or mongodb+srv://...)
+ * 2. MongoDB Atlas HTTPS Data API (MONGODB_DATA_API_KEY & MONGODB_APP_ID)
  */
 export class MongoDBClient {
+  private connectionString: string;
   private apiKey: string;
   private appId: string;
-  private database: string;
+  private databaseName: string;
   private dataSource: string;
   private baseUrl: string;
+  private isNativeDriver: boolean;
   private isConfigured: boolean;
 
   constructor(env: Env) {
-    this.apiKey = env.MONGODB_DATA_API_KEY || '';
-    this.appId = env.MONGODB_APP_ID || '';
-    this.database = env.MONGODB_DATABASE || 'finance_db';
-    this.dataSource = env.MONGODB_DATA_SOURCE || 'Cluster0';
-    
-    // Default MongoDB Atlas Data API base URL pattern
-    this.baseUrl = `https://services.cloud.mongodb.com/api/client/v2.0/app/${this.appId}/service/data/incoming_webhook`;
-    // Standard Atlas Data API v1 format
-    if (this.appId && !this.appId.startsWith('http')) {
-      this.baseUrl = `https://data.mongodb-api.com/app/${this.appId}/endpoint/data/v1`;
+    const rawKey = env.MONGODB_DATA_API_KEY || '';
+    const rawUri = env.MONGODB_URI || '';
+
+    // Check if user passed a standard connection string (mongodb:// or mongodb+srv://)
+    if (rawUri.startsWith('mongodb') || rawKey.startsWith('mongodb')) {
+      this.connectionString = rawUri.startsWith('mongodb') ? rawUri : rawKey;
+      this.isNativeDriver = true;
+    } else {
+      this.connectionString = '';
+      this.isNativeDriver = false;
     }
+
+    this.apiKey = rawKey;
+    this.appId = env.MONGODB_APP_ID || '';
+    this.databaseName = env.MONGODB_DATABASE || 'finance_db';
+    this.dataSource = env.MONGODB_DATA_SOURCE || 'main';
     
-    this.isConfigured = Boolean(this.apiKey && this.appId);
+    this.baseUrl = `https://data.mongodb-api.com/app/${this.appId}/endpoint/data/v1`;
+    this.isConfigured = Boolean(this.isNativeDriver || (this.apiKey && this.appId));
   }
 
-  private async request(action: string, collection: string, payload: Record<string, any>): Promise<any> {
-    if (!this.isConfigured) {
-      console.warn(`[MongoDB] Data API credentials missing. Action '${action}' on '${collection}' fallback.`);
+  private async getNativeDb(): Promise<Db | null> {
+    if (!this.connectionString) return null;
+    try {
+      if (!cachedClient) {
+        cachedClient = new MongoClient(this.connectionString, {
+          maxPoolSize: 1,
+          connectTimeoutMS: 10000
+        } as any);
+        await cachedClient.connect();
+      }
+      if (!cachedDb) {
+        cachedDb = cachedClient.db(this.databaseName);
+      }
+      return cachedDb;
+    } catch (err: any) {
+      console.error('[MongoDB Driver Error] Connection failed:', err.message || err);
       return null;
     }
+  }
+
+  private async requestDataApi(action: string, collection: string, payload: Record<string, any>): Promise<any> {
+    if (!this.apiKey || this.apiKey.startsWith('mongodb')) return null;
 
     const url = `${this.baseUrl}/action/${action}`;
     const body = {
       dataSource: this.dataSource,
-      database: this.database,
+      database: this.databaseName,
       collection,
       ...payload
     };
@@ -55,14 +85,14 @@ export class MongoDBClient {
 
       if (!response.ok) {
         const errText = await response.text();
-        console.error(`[MongoDB Error] ${action} on ${collection} failed (${response.status}):`, errText);
-        throw new Error(`MongoDB Data API request failed: ${response.statusText}`);
+        console.error(`[MongoDB Data API Error] ${action} on ${collection} failed:`, errText);
+        return null;
       }
 
       return await response.json();
     } catch (err: any) {
-      console.error(`[MongoDB Fetch Exception] ${action} on ${collection}:`, err.message || err);
-      throw err;
+      console.error(`[MongoDB Data API Exception] ${action}:`, err.message || err);
+      return null;
     }
   }
 
@@ -72,102 +102,155 @@ export class MongoDBClient {
       ...tx,
       createdAt: new Date().toISOString()
     };
-    if (!this.isConfigured) return 'mock_tx_' + Date.now();
 
-    const res = await this.request('insertOne', 'transactions', { document: doc });
-    return res?.insertedId || 'tx_' + Date.now();
-  }
-
-  async getTransactionById(id: string): Promise<Transaction | null> {
-    if (!this.isConfigured) return null;
-    const res = await this.request('findOne', 'transactions', { filter: { _id: { $oid: id } } });
-    return res?.document || null;
-  }
-
-  async updateTransaction(id: string, update: Partial<Transaction>): Promise<boolean> {
-    if (!this.isConfigured) return true;
-    const res = await this.request('updateOne', 'transactions', {
-      filter: { _id: { $oid: id } },
-      update: { $set: update }
-    });
-    return (res?.matchedCount || 0) > 0;
-  }
-
-  async getRecentTransactions(limit = 20): Promise<Transaction[]> {
-    if (!this.isConfigured) return getMockTransactions();
-    const res = await this.request('find', 'transactions', {
-      sort: { timestamp: -1 },
-      limit
-    });
-    return res?.documents || [];
-  }
-
-  async getMonthlyStats(monthIsoPrefix: string): Promise<{ totalIncome: number; totalExpense: number; categoryBreakdown: Record<string, number> }> {
-    if (!this.isConfigured) return getMockStats();
-    
-    // Aggregation pipeline to sum income vs expenses
-    const pipeline = [
-      {
-        $match: {
-          status: 'confirmed',
-          timestamp: { $regex: `^${monthIsoPrefix}` }
-        }
-      },
-      {
-        $group: {
-          _id: { type: '$type', category: '$category' },
-          total: { $sum: '$amount' }
-        }
-      }
-    ];
-
-    const res = await this.request('aggregate', 'transactions', { pipeline });
-    const docs = res?.documents || [];
-
-    let totalIncome = 0;
-    let totalExpense = 0;
-    const categoryBreakdown: Record<string, number> = {};
-
-    for (const doc of docs) {
-      const type = doc._id?.type;
-      const cat = doc._id?.category || 'General';
-      const sum = doc.total || 0;
-
-      if (type === 'income') totalIncome += sum;
-      if (type === 'expense') {
-        totalExpense += sum;
-        categoryBreakdown[cat] = (categoryBreakdown[cat] || 0) + sum;
+    if (this.isNativeDriver) {
+      const db = await this.getNativeDb();
+      if (db) {
+        const res = await db.collection('transactions').insertOne(doc as any);
+        return res.insertedId.toString();
       }
     }
 
-    return { totalIncome, totalExpense, categoryBreakdown };
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('insertOne', 'transactions', { document: doc });
+      return res?.insertedId || 'tx_' + Date.now();
+    }
+
+    return 'mock_tx_' + Date.now();
+  }
+
+  async getTransactionById(id: string): Promise<Transaction | null> {
+    if (this.isNativeDriver) {
+      const db = await this.getNativeDb();
+      if (db) {
+        const doc = await db.collection('transactions').findOne({ _id: id as any });
+        return (doc as unknown as Transaction) || null;
+      }
+    }
+
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('findOne', 'transactions', { filter: { _id: { $oid: id } } });
+      return res?.document || null;
+    }
+
+    return null;
+  }
+
+  async updateTransaction(id: string, update: Partial<Transaction>): Promise<boolean> {
+    if (this.isNativeDriver) {
+      const db = await this.getNativeDb();
+      if (db) {
+        const res = await db.collection('transactions').updateOne({ _id: id as any }, { $set: update });
+        return res.matchedCount > 0;
+      }
+    }
+
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('updateOne', 'transactions', {
+        filter: { _id: { $oid: id } },
+        update: { $set: update }
+      });
+      return (res?.matchedCount || 0) > 0;
+    }
+
+    return true;
+  }
+
+  async getRecentTransactions(limit = 20): Promise<Transaction[]> {
+    if (this.isNativeDriver) {
+      const db = await this.getNativeDb();
+      if (db) {
+        const docs = await db.collection('transactions').find({}).sort({ timestamp: -1 }).limit(limit).toArray();
+        return docs as unknown as Transaction[];
+      }
+    }
+
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('find', 'transactions', {
+        sort: { timestamp: -1 },
+        limit
+      });
+      return res?.documents || [];
+    }
+
+    return getMockTransactions();
+  }
+
+  async getMonthlyStats(monthIsoPrefix: string): Promise<{ totalIncome: number; totalExpense: number; categoryBreakdown: Record<string, number> }> {
+    if (this.isNativeDriver) {
+      const db = await this.getNativeDb();
+      if (db) {
+        const pipeline = [
+          { $match: { status: 'confirmed', timestamp: { $regex: `^${monthIsoPrefix}` } } },
+          { $group: { _id: { type: '$type', category: '$category' }, total: { $sum: '$amount' } } }
+        ];
+        const docs = await db.collection('transactions').aggregate(pipeline).toArray();
+        return parseAggStats(docs);
+      }
+    }
+
+    if (this.isConfigured) {
+      const pipeline = [
+        { $match: { status: 'confirmed', timestamp: { $regex: `^${monthIsoPrefix}` } } },
+        { $group: { _id: { type: '$type', category: '$category' }, total: { $sum: '$amount' } } }
+      ];
+      const res = await this.requestDataApi('aggregate', 'transactions', { pipeline });
+      return parseAggStats(res?.documents || []);
+    }
+
+    return getMockStats();
   }
 
   // --- Persons ---
   async getAllPersons(): Promise<Person[]> {
-    if (!this.isConfigured) return getMockPersons();
-    const res = await this.request('find', 'persons', { sort: { name: 1 } });
-    return res?.documents || [];
+    if (this.isNativeDriver) {
+      const db = await this.getNativeDb();
+      if (db) {
+        const docs = await db.collection('persons').find({}).sort({ name: 1 }).toArray();
+        return docs as unknown as Person[];
+      }
+    }
+
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('find', 'persons', { sort: { name: 1 } });
+      return res?.documents || [];
+    }
+
+    return getMockPersons();
   }
 
   async findPersonByNameOrAlias(name: string): Promise<Person | null> {
-    if (!this.isConfigured) {
-      const mock = getMockPersons().find(p => 
-        p.name.toLowerCase() === name.toLowerCase() || 
-        p.aliases.some(a => a.toLowerCase() === name.toLowerCase())
-      );
-      return mock || null;
+    const esc = escapeRegex(name);
+    if (this.isNativeDriver) {
+      const db = await this.getNativeDb();
+      if (db) {
+        const doc = await db.collection('persons').findOne({
+          $or: [
+            { name: { $regex: `^${esc}$`, $options: 'i' } },
+            { aliases: { $elemMatch: { $regex: `^${esc}$`, $options: 'i' } } }
+          ]
+        });
+        return (doc as unknown as Person) || null;
+      }
     }
 
-    const res = await this.request('findOne', 'persons', {
-      filter: {
-        $or: [
-          { name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' } },
-          { aliases: { $elemMatch: { $regex: `^${escapeRegex(name)}$`, $options: 'i' } } }
-        ]
-      }
-    });
-    return res?.document || null;
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('findOne', 'persons', {
+        filter: {
+          $or: [
+            { name: { $regex: `^${esc}$`, $options: 'i' } },
+            { aliases: { $elemMatch: { $regex: `^${esc}$`, $options: 'i' } } }
+          ]
+        }
+      });
+      return res?.document || null;
+    }
+
+    const mock = getMockPersons().find(p => 
+      p.name.toLowerCase() === name.toLowerCase() || 
+      p.aliases.some(a => a.toLowerCase() === name.toLowerCase())
+    );
+    return mock || null;
   }
 
   async createPerson(name: string, initialAccount?: string): Promise<Person> {
@@ -180,75 +263,151 @@ export class MongoDBClient {
       updatedAt: new Date().toISOString()
     };
 
-    if (!this.isConfigured) return { ...newPerson, _id: 'person_' + Date.now() };
+    if (this.isNativeDriver) {
+      const db = await this.getNativeDb();
+      if (db) {
+        const res = await db.collection('persons').insertOne(newPerson as any);
+        return { ...newPerson, _id: res.insertedId.toString() };
+      }
+    }
 
-    const res = await this.request('insertOne', 'persons', { document: newPerson });
-    return { ...newPerson, _id: res?.insertedId };
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('insertOne', 'persons', { document: newPerson });
+      return { ...newPerson, _id: res?.insertedId };
+    }
+
+    return { ...newPerson, _id: 'person_' + Date.now() };
   }
 
   async updatePersonBalance(personId: string, amountDelta: number): Promise<void> {
-    if (!this.isConfigured) return;
-    await this.request('updateOne', 'persons', {
-      filter: { _id: { $oid: personId } },
-      update: {
-        $inc: { netBalance: amountDelta },
-        $set: { updatedAt: new Date().toISOString() }
+    if (this.isNativeDriver) {
+      const db = await this.getNativeDb();
+      if (db) {
+        await db.collection('persons').updateOne(
+          { _id: personId as any },
+          { $inc: { netBalance: amountDelta }, $set: { updatedAt: new Date().toISOString() } }
+        );
+        return;
       }
-    });
+    }
+
+    if (this.isConfigured) {
+      await this.requestDataApi('updateOne', 'persons', {
+        filter: { _id: { $oid: personId } },
+        update: { $inc: { netBalance: amountDelta }, $set: { updatedAt: new Date().toISOString() } }
+      });
+    }
   }
 
   async mergePersons(primaryId: string, targetId: string, aliasToAdd: string): Promise<void> {
-    if (!this.isConfigured) return;
-
-    // 1. Get target person data
-    const targetRes = await this.request('findOne', 'persons', { filter: { _id: { $oid: targetId } } });
-    const target = targetRes?.document as Person | undefined;
-
-    if (!target) return;
-
-    // 2. Transfer target balance and aliases to primary
-    await this.request('updateOne', 'persons', {
-      filter: { _id: { $oid: primaryId } },
-      update: {
-        $inc: { netBalance: target.netBalance || 0 },
-        $addToSet: {
-          aliases: { $each: [...(target.aliases || []), aliasToAdd] },
-          accounts: { $each: target.accounts || [] }
-        },
-        $set: { updatedAt: new Date().toISOString() }
+    if (this.isNativeDriver) {
+      const db = await this.getNativeDb();
+      if (db) {
+        const target = await db.collection('persons').findOne({ _id: targetId as any });
+        if (target) {
+          await db.collection('persons').updateOne(
+            { _id: primaryId as any },
+            {
+              $inc: { netBalance: target.netBalance || 0 },
+              $addToSet: {
+                aliases: { $each: [...(target.aliases || []), aliasToAdd] },
+                accounts: { $each: target.accounts || [] }
+              },
+              $set: { updatedAt: new Date().toISOString() }
+            }
+          );
+          await db.collection('transactions').updateMany({ personId: targetId }, { $set: { personId: primaryId } });
+          await db.collection('persons').deleteOne({ _id: targetId as any });
+        }
+        return;
       }
-    });
+    }
 
-    // 3. Re-assign transactions from target to primary
-    await this.request('updateMany', 'transactions', {
-      filter: { personId: targetId },
-      update: { $set: { personId: primaryId } }
-    });
-
-    // 4. Delete target person record
-    await this.request('deleteOne', 'persons', { filter: { _id: { $oid: targetId } } });
+    if (this.isConfigured) {
+      const targetRes = await this.requestDataApi('findOne', 'persons', { filter: { _id: { $oid: targetId } } });
+      const target = targetRes?.document;
+      if (target) {
+        await this.requestDataApi('updateOne', 'persons', {
+          filter: { _id: { $oid: primaryId } },
+          update: {
+            $inc: { netBalance: target.netBalance || 0 },
+            $addToSet: { aliases: { $each: [...(target.aliases || []), aliasToAdd] }, accounts: { $each: target.accounts || [] } },
+            $set: { updatedAt: new Date().toISOString() }
+          }
+        });
+        await this.requestDataApi('updateMany', 'transactions', { filter: { personId: targetId }, update: { $set: { personId: primaryId } } });
+        await this.requestDataApi('deleteOne', 'persons', { filter: { _id: { $oid: targetId } } });
+      }
+    }
   }
 
   // --- Accounts ---
   async getAllAccounts(): Promise<Account[]> {
-    if (!this.isConfigured) return getMockAccounts();
-    const res = await this.request('find', 'accounts', { sort: { name: 1 } });
-    return res?.documents || [];
+    if (this.isNativeDriver) {
+      const db = await this.getNativeDb();
+      if (db) {
+        const docs = await db.collection('accounts').find({}).sort({ name: 1 }).toArray();
+        return docs as unknown as Account[];
+      }
+    }
+
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('find', 'accounts', { sort: { name: 1 } });
+      return res?.documents || [];
+    }
+
+    return getMockAccounts();
   }
 
   async updateAccountBalance(accountName: string, delta: number): Promise<void> {
-    if (!this.isConfigured) return;
-    // Upsert account balance
-    await this.request('updateOne', 'accounts', {
-      filter: { name: accountName },
-      update: {
-        $inc: { balance: delta },
-        $setOnInsert: { type: detectAccountType(accountName), currency: 'PKR' },
-        $set: { updatedAt: new Date().toISOString() }
-      },
-      upsert: true
-    });
+    if (this.isNativeDriver) {
+      const db = await this.getNativeDb();
+      if (db) {
+        await db.collection('accounts').updateOne(
+          { name: accountName },
+          {
+            $inc: { balance: delta },
+            $setOnInsert: { type: detectAccountType(accountName), currency: 'PKR' },
+            $set: { updatedAt: new Date().toISOString() }
+          },
+          { upsert: true }
+        );
+        return;
+      }
+    }
+
+    if (this.isConfigured) {
+      await this.requestDataApi('updateOne', 'accounts', {
+        filter: { name: accountName },
+        update: {
+          $inc: { balance: delta },
+          $setOnInsert: { type: detectAccountType(accountName), currency: 'PKR' },
+          $set: { updatedAt: new Date().toISOString() }
+        },
+        upsert: true
+      });
+    }
   }
+}
+
+function parseAggStats(docs: any[]) {
+  let totalIncome = 0;
+  let totalExpense = 0;
+  const categoryBreakdown: Record<string, number> = {};
+
+  for (const doc of docs) {
+    const type = doc._id?.type;
+    const cat = doc._id?.category || 'General';
+    const sum = doc.total || 0;
+
+    if (type === 'income') totalIncome += sum;
+    if (type === 'expense') {
+      totalExpense += sum;
+      categoryBreakdown[cat] = (categoryBreakdown[cat] || 0) + sum;
+    }
+  }
+
+  return { totalIncome, totalExpense, categoryBreakdown };
 }
 
 function escapeRegex(str: string): string {
@@ -267,71 +426,18 @@ function detectAccountType(name: string): 'mobile_wallet' | 'bank' | 'cash' | 'c
   return 'card';
 }
 
-// --- Mock Fallbacks for Instant Out-of-the-Box Dev Mode ---
 function getMockTransactions(): Transaction[] {
   return [
-    {
-      _id: 'tx_1',
-      type: 'expense',
-      amount: 1450,
-      currency: 'PKR',
-      category: 'Food & Dining',
-      account: 'JazzCash',
-      personName: 'Tehzeeb Bakery',
-      note: 'Fresh bread & cakes',
-      rawText: 'Spent 1450 at Tehzeeb via JazzCash',
-      status: 'confirmed',
-      timestamp: new Date(Date.now() - 3600000 * 2).toISOString()
-    },
-    {
-      _id: 'tx_2',
-      type: 'transfer',
-      amount: 5000,
-      currency: 'PKR',
-      category: 'Friends & Debt',
-      account: 'Meezan Bank',
-      personName: 'Ali Khan',
-      note: 'Dinner split transfer',
-      rawText: 'Sent 5000 to Ali Khan via Meezan',
-      status: 'confirmed',
-      timestamp: new Date(Date.now() - 3600000 * 24).toISOString()
-    },
-    {
-      _id: 'tx_3',
-      type: 'income',
-      amount: 45000,
-      currency: 'PKR',
-      category: 'Freelance / Salary',
-      account: 'EasyPaisa',
-      personName: 'Client Payment',
-      note: 'Website design milestone',
-      rawText: 'Recieved 45000 on EasyPaisa',
-      status: 'confirmed',
-      timestamp: new Date(Date.now() - 3600000 * 48).toISOString()
-    }
+    { _id: 'tx_1', type: 'expense', amount: 1450, currency: 'PKR', category: 'Food & Dining', account: 'JazzCash', personName: 'Tehzeeb Bakery', note: 'Fresh bread & cakes', rawText: 'Spent 1450 at Tehzeeb via JazzCash', status: 'confirmed', timestamp: new Date(Date.now() - 3600000 * 2).toISOString() },
+    { _id: 'tx_2', type: 'transfer', amount: 5000, currency: 'PKR', category: 'Friends & Debt', account: 'Meezan Bank', personName: 'Ali Khan', note: 'Dinner split transfer', rawText: 'Sent 5000 to Ali Khan via Meezan', status: 'confirmed', timestamp: new Date(Date.now() - 3600000 * 24).toISOString() },
+    { _id: 'tx_3', type: 'income', amount: 45000, currency: 'PKR', category: 'Freelance / Salary', account: 'EasyPaisa', personName: 'Client Payment', note: 'Website design milestone', rawText: 'Recieved 45000 on EasyPaisa', status: 'confirmed', timestamp: new Date(Date.now() - 3600000 * 48).toISOString() }
   ];
 }
 
 function getMockPersons(): Person[] {
   return [
-    {
-      _id: 'p_1',
-      name: 'Ali Khan',
-      aliases: ['Ali', 'Ali K', 'Ali Khan'],
-      accounts: ['JazzCash', 'Meezan Bank'],
-      netBalance: 5000, // owes user 5000 PKR
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    },
-    {
-      _id: 'p_2',
-      name: 'Usman Ahmed',
-      aliases: ['Usman', 'Usman A'],
-      accounts: ['EasyPaisa', 'HBL'],
-      netBalance: -2500, // user owes Usman 2500 PKR
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
+    { _id: 'p_1', name: 'Ali Khan', aliases: ['Ali', 'Ali K', 'Ali Khan'], accounts: ['JazzCash', 'Meezan Bank'], netBalance: 5000, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { _id: 'p_2', name: 'Usman Ahmed', aliases: ['Usman', 'Usman A'], accounts: ['EasyPaisa', 'HBL'], netBalance: -2500, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
   ];
 }
 
@@ -349,10 +455,6 @@ function getMockStats() {
   return {
     totalIncome: 45000,
     totalExpense: 1450,
-    categoryBreakdown: {
-      'Food & Dining': 1450,
-      'Bills & Utilities': 3200,
-      'Groceries': 8500
-    }
+    categoryBreakdown: { 'Food & Dining': 1450, 'Bills & Utilities': 3200, 'Groceries': 8500 }
   };
 }

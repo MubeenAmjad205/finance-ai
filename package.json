@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "fuse.js": "^7.0.0",
-    "hono": "^4.6.12"
+    "hono": "^4.6.12",
+    "mongodb": "^7.6.0"
   }
 }

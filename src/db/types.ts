@@ -101,6 +101,7 @@ export interface Env {
   TELEGRAM_SECRET_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string; // For scheduled notifications
   MONGODB_DATA_API_KEY?: string;
+  MONGODB_URI?: string;
   MONGODB_APP_ID?: string;
   MONGODB_DATABASE?: string;
   MONGODB_DATA_SOURCE?: string;
