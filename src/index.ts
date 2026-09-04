@@ -23,7 +23,7 @@ app.post('/api/telegram/webhook', async (c) => {
   return await handler.handleWebhook(c.req.raw);
 });
 
-// 3. Optional Telegram Webhook Registration Helper
+// 3. Optional Telegram Webhook & Commands Registration Helper
 app.get('/api/telegram/setup-webhook', async (c) => {
   const token = c.env.TELEGRAM_BOT_TOKEN;
   const secretToken = c.env.TELEGRAM_SECRET_TOKEN;
@@ -36,13 +36,38 @@ app.get('/api/telegram/setup-webhook', async (c) => {
   const webhookUrl = `https://${host}/api/telegram/webhook`;
   const setUrl = `https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}${secretToken ? `&secret_token=${encodeURIComponent(secretToken)}` : ''}`;
 
+  // Register Slash Commands menu with Telegram API
+  const commandsUrl = `https://api.telegram.org/bot${token}/setMyCommands`;
+  const commandsList = [
+    { command: 'summary', description: 'Monthly income, expenses & stats' },
+    { command: 'accounts', description: 'View JazzCash, EasyPaisa & bank balances' },
+    { command: 'setbalance', description: 'Set starting account balance' },
+    { command: 'transfer', description: 'Transfer funds between accounts' },
+    { command: 'settle', description: 'Settle debt with a counterparty' },
+    { command: 'persons', description: 'Counterparty ledger (who owes what)' },
+    { command: 'report', description: 'Generate monthly executive report' },
+    { command: 'query', description: 'Ask AI any financial question' },
+    { command: 'help', description: 'View bot instructions & command guide' }
+  ];
+
   try {
-    const res = await fetch(setUrl);
-    const data = await res.json();
+    const [webhookRes, cmdRes] = await Promise.all([
+      fetch(setUrl),
+      fetch(commandsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commands: commandsList })
+      })
+    ]);
+
+    const data = await webhookRes.json();
+    const cmdData = await cmdRes.json();
+
     return c.json({
       success: true,
       registeredWebhookUrl: webhookUrl,
-      telegramResponse: data
+      telegramResponse: data,
+      commandsResponse: cmdData
     });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
