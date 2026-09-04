@@ -2,7 +2,7 @@ import { Env } from '../db/types';
 import { GroupMongoDBClient } from '../db/mongodb';
 import { AIService } from '../services/ai';
 import { PDFStatementParser } from '../services/pdfParser';
-import { GroupExpenseService, GroupExpense, GroupExpenseParticipant } from '../services/groupExpense';
+import { GroupExpenseService, GroupExpense, GroupExpenseParticipant, isBotHandle } from '../services/groupExpense';
 
 const inMemoryGroupExpenses: Record<string, GroupExpense[]> = {};
 
@@ -268,7 +268,8 @@ export class TelegramGroupBotHandler {
     await this.sendTelegramMessage(chatId, `🧠 Workers AI analyzing group lunch bill...`);
     const parsed = await GroupExpenseService.parseGroupExpenseMessage(this.env, text, senderName);
 
-    const uniqueParticipants = Array.from(new Set([...parsed.participantNames, senderName]));
+    const rawParticipants = Array.from(new Set([...parsed.participantNames, senderName]));
+    const uniqueParticipants = rawParticipants.filter(name => !isBotHandle(name));
     const perPersonShare = Math.round(parsed.totalAmount / (uniqueParticipants.length || 1));
 
     const participants: GroupExpenseParticipant[] = uniqueParticipants.map(name => ({

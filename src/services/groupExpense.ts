@@ -30,6 +30,16 @@ export interface NetGroupBalance {
   amount: number;
 }
 
+export function isBotHandle(name: string): boolean {
+  if (!name) return false;
+  const clean = name.trim().toLowerCase().replace('@', '');
+  return clean === 'quantum_lunch_bot' ||
+         clean === 'quantum_finance_bot' ||
+         clean.endsWith('_bot') ||
+         clean === 'bot' ||
+         clean.endsWith('lunch_bot');
+}
+
 export class GroupExpenseService {
   /**
    * Parse group expense text using Cloudflare Workers AI
@@ -45,6 +55,10 @@ export class GroupExpenseService {
 Message: "${text}"
 
 Sender Name: "${senderName}"
+
+CRITICAL INSTRUCTION:
+- Exclude the bot itself (e.g. @quantum_lunch_bot or any bot handle mentioned to command the bot) from participantNames.
+- participantNames must ONLY include human office colleagues sharing the cost.
 
 Return STRICT JSON ONLY:
 {
@@ -66,13 +80,16 @@ Return STRICT JSON ONLY:
         const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
+          const rawParticipants = Array.isArray(parsed.participantNames) && parsed.participantNames.length > 0
+            ? parsed.participantNames
+            : [senderName];
+          const participantNames = rawParticipants.filter((n: string) => !isBotHandle(n));
+
           return {
             totalAmount: Math.abs(Number(parsed.totalAmount) || 0),
             paidByName: parsed.paidByName || senderName,
             note: parsed.note || 'Office Lunch',
-            participantNames: Array.isArray(parsed.participantNames) && parsed.participantNames.length > 0
-              ? parsed.participantNames
-              : [senderName]
+            participantNames: participantNames.length > 0 ? participantNames : [senderName]
           };
         }
       }
@@ -204,14 +221,17 @@ function heuristicGroupParse(text: string, senderName: string) {
   const amountMatch = text.match(/(\d+(?:,\d+)*(?:\.\d+)?)/);
   const totalAmount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : 1000;
 
-  // Extract @mentions
-  const mentions = text.match(/@[A-Za-z0-9_]+/g) || [];
-  const participantNames = Array.from(new Set([...mentions, senderName]));
+  // Extract @mentions excluding bot handles
+  const mentions = (text.match(/@[A-Za-z0-9_]+/g) || [])
+    .filter(m => !isBotHandle(m));
+
+  const rawParticipants = Array.from(new Set([...mentions, senderName]));
+  const participantNames = rawParticipants.filter(n => !isBotHandle(n));
 
   return {
     totalAmount,
     paidByName: senderName,
     note: 'Office Lunch',
-    participantNames
+    participantNames: participantNames.length > 0 ? participantNames : [senderName]
   };
 }

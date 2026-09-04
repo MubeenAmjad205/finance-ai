@@ -1,7 +1,7 @@
 import { Env } from '../src/db/types';
 import { TelegramBotHandler } from '../src/telegram/bot';
 import { TelegramGroupBotHandler } from '../src/telegram/groupBot';
-import { GroupExpenseService } from '../src/services/groupExpense';
+import { GroupExpenseService, isBotHandle } from '../src/services/groupExpense';
 
 const mockEnv: Env = {
   AI: {
@@ -27,6 +27,16 @@ const mockEnv: Env = {
         if (userContent.includes('STRICT SECURITY DIRECTIVE')) {
           return {
             response: 'I am your Office Group Lunch Bot. I only manage public group lunch bills and do not have access to personal bank balances.'
+          };
+        }
+        if (userContent.includes('@basim_1947')) {
+          return {
+            response: JSON.stringify({
+              totalAmount: 1000,
+              paidByName: 'Mubeen Amjad',
+              note: 'Lunch Bill',
+              participantNames: ['@quantum_lunch_bot', '@basim_1947']
+            })
           };
         }
         if (userContent.includes('group lunch bill')) {
@@ -195,6 +205,20 @@ async function runE2ETests() {
     assert(res.status === 200, 'Group Natural Bill Parsing');
   } catch (err: any) {
     assert(false, 'Group Natural Bill Parsing', err.message);
+  }
+
+  // Test Bot Mention Exclusion in Group Bill Split
+  try {
+    const botMentionParse = await GroupExpenseService.parseGroupExpenseMessage(
+      mockEnv,
+      '@quantum_lunch_bot i paid the lunch bill 1000 and the poeple were @basim_1947',
+      'Mubeen Amjad'
+    );
+    const filteredParticipants = Array.from(new Set([...botMentionParse.participantNames, 'Mubeen Amjad'])).filter(n => !isBotHandle(n));
+    assert(!filteredParticipants.includes('@quantum_lunch_bot'), 'Bot Excluded From Participants');
+    assert(filteredParticipants.length === 2, 'Bill Split 50-50 Between 2 People (500 PKR each)');
+  } catch (err: any) {
+    assert(false, 'Bot Excluded From Participants', err.message);
   }
 
   console.log('\n----------------------------------------------------\n');
