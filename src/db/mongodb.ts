@@ -242,6 +242,60 @@ export class MongoDBClient {
       });
     }
   }
+
+  // --- Group Expenses ---
+  async createGroupExpense(exp: any): Promise<string> {
+    const doc = { ...exp, createdAt: new Date().toISOString() };
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('insertOne', 'group_expenses', { document: doc });
+      return res?.insertedId || doc._id || 'gexp_' + Date.now();
+    }
+    return doc._id || 'gexp_' + Date.now();
+  }
+
+  async getGroupExpensesByGroupId(groupId: string | number): Promise<any[]> {
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('find', 'group_expenses', {
+        filter: { groupId: String(groupId) },
+        sort: { timestamp: -1 }
+      });
+      return res?.documents || [];
+    }
+    return [];
+  }
+
+  async updateGroupExpense(id: string, update: Record<string, any>): Promise<boolean> {
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('updateOne', 'group_expenses', {
+        filter: { _id: id.length === 24 ? { $oid: id } : id },
+        update: { $set: update }
+      });
+      return (res?.matchedCount || 0) > 0;
+    }
+    return true;
+  }
+
+  async deleteGroupExpense(id: string): Promise<boolean> {
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('deleteOne', 'group_expenses', {
+        filter: { _id: id.length === 24 ? { $oid: id } : id }
+      });
+      return (res?.deletedCount || 0) > 0;
+    }
+    return true;
+  }
+
+  async getLastGroupExpense(groupId: string | number): Promise<any | null> {
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('find', 'group_expenses', {
+        filter: { groupId: String(groupId) },
+        sort: { timestamp: -1 },
+        limit: 1
+      });
+      return res?.documents?.[0] || null;
+    }
+    return null;
+  }
 }
 
 function parseAggStats(docs: any[]) {

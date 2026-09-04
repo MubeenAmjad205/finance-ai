@@ -98,6 +98,7 @@ export interface Env {
   DEFAULT_CURRENCY?: string;
   ENABLE_AUTO_OCR?: string;
   TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_GROUP_BOT_TOKEN?: string;
   TELEGRAM_SECRET_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string; // For scheduled notifications
   MONGODB_DATA_API_KEY?: string;

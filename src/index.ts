@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Env } from './db/types';
 import { MongoDBClient } from './db/mongodb';
 import { TelegramBotHandler } from './telegram/bot';
+import { TelegramGroupBotHandler } from './telegram/groupBot';
 import { ScheduledTaskHandler } from './services/scheduler';
 import { renderDashboardHtml } from './ui/dashboard';
 
@@ -17,10 +18,16 @@ app.get('/api/health', (c) => {
   });
 });
 
-// 2. Telegram Webhook Endpoint
+// 2. Telegram Personal Webhook Endpoint
 app.post('/api/telegram/webhook', async (c) => {
   const handler = new TelegramBotHandler(c.env);
   return await handler.handleWebhook(c.req.raw);
+});
+
+// 3. Telegram Office Group Webhook Endpoint
+app.post('/api/telegram/group-webhook', async (c) => {
+  const handler = new TelegramGroupBotHandler(c.env);
+  return await handler.handleGroupWebhook(c.req.raw);
 });
 
 // 3. Optional Telegram Webhook & Commands Registration Helper
@@ -79,7 +86,61 @@ app.get('/api/telegram/setup-webhook', async (c) => {
   }
 });
 
-// 4. JSON Stats API
+// 4. Setup Group Telegram Bot Webhook & Commands
+app.get('/api/telegram/setup-group-webhook', async (c) => {
+  const token = c.env.TELEGRAM_GROUP_BOT_TOKEN || c.env.TELEGRAM_BOT_TOKEN;
+  const secretToken = c.env.TELEGRAM_SECRET_TOKEN;
+  const host = c.req.header('host');
+
+  if (!token) {
+    return c.json({ error: 'TELEGRAM_GROUP_BOT_TOKEN or TELEGRAM_BOT_TOKEN secret is missing.' }, 400);
+  }
+
+  const webhookUrl = `https://${host}/api/telegram/group-webhook`;
+  const setUrl = `https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}${secretToken ? `&secret_token=${encodeURIComponent(secretToken)}` : ''}`;
+
+  const groupCommandsList = [
+    { command: 'groupledger', description: 'Net group balance matrix (who owes whom)' },
+    { command: 'summary', description: 'Monthly group spending breakdown & leaderboard' },
+    { command: 'accounts', description: 'Supported office payment channels' },
+    { command: 'paylink', description: 'Generate shareable Raast payment request' },
+    { command: 'setlimit', description: 'Set monthly group budget cap' },
+    { command: 'goals', description: 'Office team savings goals' },
+    { command: 'settle', description: 'Settle debt for a group member' },
+    { command: 'undo', description: 'Roll back last logged group expense' },
+    { command: 'advisor', description: 'AI tips for saving on office lunches' },
+    { command: 'remind', description: 'Send friendly reminder to unpaid members' },
+    { command: 'report', description: 'Generate monthly executive group report' },
+    { command: 'members', description: 'View list of active group participants' },
+    { command: 'query', description: 'Ask AI any question about group expenses' },
+    { command: 'grouphelp', description: 'View group bot help & usage guide' }
+  ];
+
+  try {
+    const [webhookRes, cmdRes] = await Promise.all([
+      fetch(setUrl),
+      fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commands: groupCommandsList })
+      })
+    ]);
+
+    const data = await webhookRes.json();
+    const cmdData = await cmdRes.json();
+
+    return c.json({
+      success: true,
+      registeredGroupWebhookUrl: webhookUrl,
+      telegramResponse: data,
+      commandsResponse: cmdData
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 5. JSON Stats API
 app.get('/api/stats', async (c) => {
   const db = new MongoDBClient(c.env);
   const currentMonth = new Date().toISOString().substring(0, 7);
