@@ -30,11 +30,13 @@ export class AIService {
    * Detect message intent: 'chat' (greetings/general chat), 'question' (financial query), or 'transaction' (logging expense/income)
    */
   static detectMessageIntent(text: string): 'chat' | 'question' | 'transaction' {
-    const lower = text.trim().toLowerCase();
+    // Strip bot @mentions (e.g. "@quantum_lunch_bot hi" -> "hi")
+    const clean = text.replace(/@[A-Za-z0-9_]+/g, '').trim();
+    const lower = clean.toLowerCase();
 
     // 1. General Greetings & Small Talk
     const chatPhrases = ['hi', 'hello', 'hey', 'how are you', 'who are you', 'what can you do', 'good morning', 'good evening', 'thanks', 'thank you', 'ok', 'okay', 'bye'];
-    if (chatPhrases.includes(lower) || lower.startsWith('hi ') || lower.startsWith('hello ') || lower.startsWith('hey ')) {
+    if (chatPhrases.includes(lower) || lower.startsWith('hi') || lower.startsWith('hello') || lower.startsWith('hey') || lower.includes('how are you') || lower.includes('how are')) {
       return 'chat';
     }
 
