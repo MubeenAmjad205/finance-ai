@@ -1,12 +1,15 @@
-export type TransactionType = 'expense' | 'income' | 'transfer' | 'debt_given' | 'debt_received';
+export type TransactionType = 'expense' | 'income' | 'transfer' | 'debt_given' | 'debt_received' | 'group_split';
 
 export type TransactionStatus = 'pending_confirmation' | 'confirmed' | 'rejected';
 
 export interface Transaction {
   _id?: string;
   type: TransactionType;
-  amount: number;
-  currency: string;
+  amount: number; // Amount in PKR
+  originalAmount?: number; // Original foreign currency amount (if applicable)
+  originalCurrency?: string; // e.g. "USD", "EUR", "AED", "SAR"
+  exchangeRate?: number; // Conversion rate to PKR
+  currency: string; // Default: "PKR"
   category: string;
   account: string; // e.g. "JazzCash", "EasyPaisa", "NayaPay", "Meezan Bank", "Cash", etc.
   personId?: string;
@@ -17,7 +20,45 @@ export interface Transaction {
   timestamp: string; // ISO 8601 string
   telegramMessageId?: number;
   telegramUserId?: number;
+  isVoiceNote?: boolean;
+  voiceTranscription?: string;
+  isRecurring?: boolean;
+  tags?: string[]; // e.g. ["#TaxDeductible", "#Freelance"]
   createdAt?: string;
+}
+
+export interface GroupSplit {
+  _id?: string;
+  title: string;
+  totalAmount: number;
+  paidByPersonId?: string;
+  paidByPersonName: string;
+  participants: {
+    personId?: string;
+    personName: string;
+    shareAmount: number;
+    hasPaid: boolean;
+  }[];
+  timestamp: string;
+  createdAt: string;
+}
+
+export interface RecurringBill {
+  _id?: string;
+  title: string;
+  amount: number;
+  category: string;
+  account: string;
+  dueDayOfMonth: number; // 1 - 31
+  autoNotify: boolean;
+  lastPaidTimestamp?: string;
+}
+
+export interface BudgetCap {
+  _id?: string;
+  category: string;
+  monthlyLimit: number;
+  alertThresholdPct: number; // e.g. 80 for 80%
 }
 
 export interface Person {
@@ -58,6 +99,7 @@ export interface Env {
   ENABLE_AUTO_OCR?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_SECRET_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string; // For scheduled notifications
   MONGODB_DATA_API_KEY?: string;
   MONGODB_APP_ID?: string;
   MONGODB_DATABASE?: string;

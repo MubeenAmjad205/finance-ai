@@ -7,6 +7,10 @@ compatibility_flags = ["nodejs_compat"]
 [ai]
 binding = "AI"
 
+# Scheduled Cron Triggers (Daily Morning Digest at 8:00 AM PKT / 3:00 AM UTC)
+[triggers]
+crons = ["0 3 * * *"]
+
 # Environment Variables (Non-secret placeholders)
 [vars]
 ENVIRONMENT = "production"
@@ -16,6 +20,7 @@ ENABLE_AUTO_OCR = "true"
 # Secrets required (Deploy via `wrangler secret put <KEY>`):
 # - TELEGRAM_BOT_TOKEN
 # - TELEGRAM_SECRET_TOKEN
+# - TELEGRAM_CHAT_ID
 # - MONGODB_DATA_API_KEY
 # - MONGODB_APP_ID
 # - MONGODB_DATABASE

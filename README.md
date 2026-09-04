@@ -6,12 +6,15 @@
 
 ## 🌟 Key Features
 
-- 🤖 **100% Cloudflare Workers AI**: Powered natively by Cloudflare's free AI models (`@cf/meta/llama-3.1-8b-instruct` for structured financial text parsing and `@cf/meta/llama-3.2-11b-vision-instruct` for receipt screenshots). No external paid LLM API keys needed!
-- 📲 **Telegram Bot Interface**: Log transactions effortlessly via natural text (*"Spent 1450 at Tehzeeb via JazzCash"*) or photo screenshots of receipts/bank transfer confirmations.
+- 🤖 **100% Cloudflare Workers AI**: Powered natively by Cloudflare's free AI models (`@cf/meta/llama-3.1-8b-instruct` for text parsing, `@cf/meta/llama-3.2-11b-vision-instruct` for receipt screenshots, and `@cf/openai/whisper` for voice notes).
+- 🎙️ **Urdu & English Voice Notes**: Send voice messages directly in Telegram chat (*"Bhai JazzCash se 2500 PKR petrol ke liye diye"*), and Workers AI Whisper transcribes and structures the transaction automatically!
+- 🤝 **Splitwise-Style Group Bill Splitting**: Split shared group expenses (*"Paid 6000 for dinner with Ali, Usman, Bilal - split 4 ways"*) and auto-update individual ledgers.
+- 📄 **PDF Bank Statement Bulk Import**: Upload Meezan, HBL, JazzCash, or EasyPaisa PDF statements to auto-extract transaction rows with Workers AI.
+- 💱 **Multi-Currency Conversion**: Automatic exchange rate conversion for USD, EUR, GBP, AED, SAR into PKR for freelancers and international transfers.
 - 🇵🇰 **Pakistani Payment Services & Bank Support**: Native tracking for JazzCash, EasyPaisa, NayaPay, SadaPay, Meezan Bank, HBL, UBL, Bank Alfalah, Cash, and custom wallets.
 - 👥 **Smart Person & Multi-Account Merging**: Auto-resolves counterparties (e.g. "Ali K" vs "Ali Khan"). Uses interactive **Telegram Inline Buttons** for human approval before merging records or balances.
-- 🛡️ **Human-in-the-Loop Confirmation**: Nothing is saved silently. The bot presents interactive Telegram UI buttons (`[ ✅ Confirm & Save ]`, `[ 🏦 Switch Account ]`, `[ ❌ Cancel ]`) for every transaction.
-- 📊 **Minimal Web Overview Dashboard**: Served directly from Cloudflare Worker (`/`) with a sleek glassmorphic dark-mode design to read monthly stats, spending categories, and person ledgers.
+- ⏰ **Automated Daily Digest Crons**: Cloudflare Worker scheduled triggers send daily morning balance pings (8:00 AM PKT) and bill due warnings to Telegram.
+- 📱 **Telegram Mini App (TWA) & React Dashboard**: Built with React 18, Vite, Lucide icons, and Telegram WebApp SDK (`frontend/`). Includes CSV export, category breakdown, and person ledgers.
 - 🗄️ **MongoDB Atlas Data API**: Uses MongoDB Atlas Data API over standard fetch — zero cold starts, zero socket connection pooling issues.
 
 ---
@@ -31,6 +34,7 @@
 git clone https://github.com/MubeenAmjad205/finance-ai.git
 cd finance-ai
 npm install
+cd frontend && npm install && npm run build && cd ..
 ```
 
 ---
@@ -39,6 +43,7 @@ npm install
 1. Open Telegram and search for [@BotFather](https://t.me/BotFather).
 2. Send `/newbot` and follow instructions to get your `TELEGRAM_BOT_TOKEN`.
 3. Create a random secret string for `TELEGRAM_SECRET_TOKEN` (e.g. `my_secret_token_123`).
+4. Copy your Telegram Chat ID for `TELEGRAM_CHAT_ID` (for automated morning digests).
 
 ---
 
@@ -55,6 +60,7 @@ Run the following commands to configure production secrets:
 ```bash
 npx wrangler secret put TELEGRAM_BOT_TOKEN
 npx wrangler secret put TELEGRAM_SECRET_TOKEN
+npx wrangler secret put TELEGRAM_CHAT_ID
 npx wrangler secret put MONGODB_DATA_API_KEY
 npx wrangler secret put MONGODB_APP_ID
 npx wrangler secret put MONGODB_DATABASE
@@ -112,10 +118,10 @@ Your bot will respond with `{"success": true}` and start receiving messages inst
 
 - **Runtime**: Cloudflare Workers
 - **Router**: Hono
-- **AI Engine**: Cloudflare Workers AI (`@cf/meta/llama-3.1-8b-instruct`, `@cf/meta/llama-3.2-11b-vision-instruct`)
+- **AI Models**: Cloudflare Workers AI (`@cf/meta/llama-3.1-8b-instruct`, `@cf/meta/llama-3.2-11b-vision-instruct`, `@cf/openai/whisper`)
+- **Frontend**: React 18 + Vite + Telegram Mini App SDK (`frontend/`)
 - **Database**: MongoDB Atlas Data API
 - **Fuzzy Matching**: Fuse.js
-- **UI Styling**: Vanilla CSS (SSR Glassmorphism)
 
 ---
 

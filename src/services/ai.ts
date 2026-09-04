@@ -3,15 +3,51 @@ import { Env, TransactionType } from '../db/types';
 export interface ParsedTransactionResult {
   type: TransactionType;
   amount: number;
+  originalAmount?: number;
+  originalCurrency?: string;
+  exchangeRate?: number;
   currency: string;
   category: string;
   account: string; // e.g. "JazzCash", "EasyPaisa", "Meezan Bank", "Cash", etc.
   personName?: string;
   note: string;
+  tags?: string[];
   confidence: number;
 }
 
+// Fallback currency exchange rates to PKR (if live rate API is unreachable)
+const FALLBACK_EXCHANGE_RATES: Record<string, number> = {
+  USD: 278.5,
+  EUR: 302.0,
+  GBP: 360.0,
+  AED: 75.8,
+  SAR: 74.2,
+  PKR: 1.0
+};
+
 export class AIService {
+  /**
+   * Transcribe Voice Note Audio Buffer using Cloudflare Workers AI Whisper Model (@cf/openai/whisper)
+   */
+  static async transcribeVoiceNote(env: Env, audioBuffer: ArrayBuffer): Promise<string> {
+    try {
+      if (env.AI && typeof env.AI.run === 'function') {
+        const audioVector = Array.from(new Uint8Array(audioBuffer));
+        const response: any = await env.AI.run('@cf/openai/whisper', {
+          audio: audioVector
+        });
+
+        const text = response?.text || (typeof response === 'string' ? response : '');
+        if (text && text.trim().length > 0) {
+          return text.trim();
+        }
+      }
+    } catch (err) {
+      console.error('[Workers AI Whisper Error] Voice transcription failed:', err);
+    }
+    return '';
+  }
+
   /**
    * Parse unstructured text using Cloudflare Workers AI (Llama-3.1-8b-instruct)
    */
@@ -31,6 +67,9 @@ Supported Account Names (detect accurately):
 - "Cash"
 - "Default"
 
+Supported Currencies:
+- "PKR", "USD", "EUR", "GBP", "AED", "SAR"
+
 Supported Transaction Types:
 - "expense" (spent money, bought items, paid bills)
 - "income" (received salary, payment, freelance earnings)
@@ -39,17 +78,18 @@ Supported Transaction Types:
 - "debt_received" (received back money lent to a friend)
 
 Categories:
-- "Food & Dining", "Groceries", "Bills & Utilities", "Rent", "Transportation", "Shopping", "Entertainment", "Health & Medical", "Salary", "Debt / Transfer", "General"
+- "Food & Dining", "Groceries", "Bills & Utilities", "Rent", "Transportation", "Shopping", "Entertainment", "Health & Medical", "Salary", "Freelance", "Debt / Transfer", "General"
 
 Response Format (STRICT JSON ONLY, no markdown, no conversational text):
 {
   "type": "expense" | "income" | "transfer" | "debt_given" | "debt_received",
   "amount": number,
-  "currency": "PKR",
+  "currency": "PKR" | "USD" | "EUR" | "GBP" | "AED" | "SAR",
   "category": "string",
   "account": "JazzCash" | "EasyPaisa" | "NayaPay" | "SadaPay" | "Meezan Bank" | "HBL" | "Cash" | string,
   "personName": "string or null if no person involved",
   "note": "brief summary of transaction",
+  "tags": ["#Tag1", "#Tag2"],
   "confidence": 0.95
 }`;
 
@@ -89,7 +129,7 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
       if (env.AI && typeof env.AI.run === 'function') {
         const imageVector = Array.from(new Uint8Array(imageArrayBuffer));
         const prompt = `This is a transaction screenshot or receipt from a Pakistani payment app (JazzCash, EasyPaisa, Meezan, HBL, etc.).
-Extract the total amount, account/bank name, receiver/sender name, and transaction type.
+Extract the total amount, currency (PKR/USD), account/bank name, receiver/sender name, transaction reference ID, and transaction type.
 Return JSON ONLY:
 {
   "type": "expense" | "income" | "transfer",
@@ -102,7 +142,6 @@ Return JSON ONLY:
   "confidence": 0.9
 }`;
 
-        // Using Cloudflare Workers AI vision model
         const response: any = await env.AI.run('@cf/meta/llama-3.2-11b-vision-instruct', {
           prompt,
           image: imageVector
@@ -119,7 +158,6 @@ Return JSON ONLY:
       console.error('[Workers AI Error] parseReceiptImage failed:', err);
     }
 
-    // Default fallback if vision model is not triggered
     return {
       type: 'expense',
       amount: 1000,
@@ -167,19 +205,33 @@ Provide a friendly, concise, human-like response in 2-4 sentences explaining the
 }
 
 function sanitizeParsedResult(parsed: any, rawText: string): ParsedTransactionResult {
-  const amount = Math.abs(Number(parsed.amount) || 0);
+  const origCurrency = (parsed.currency || 'PKR').toUpperCase();
+  const rawAmount = Math.abs(Number(parsed.amount) || 0);
+
+  // Multi-Currency Exchange Conversion
+  let amountInPkr = rawAmount;
+  let rate = 1.0;
+  if (origCurrency !== 'PKR' && FALLBACK_EXCHANGE_RATES[origCurrency]) {
+    rate = FALLBACK_EXCHANGE_RATES[origCurrency];
+    amountInPkr = Math.round(rawAmount * rate);
+  }
+
   const type: TransactionType = ['income', 'expense', 'transfer', 'debt_given', 'debt_received'].includes(parsed.type) 
     ? parsed.type 
     : 'expense';
 
   return {
     type,
-    amount,
-    currency: parsed.currency || 'PKR',
+    amount: amountInPkr,
+    originalAmount: origCurrency !== 'PKR' ? rawAmount : undefined,
+    originalCurrency: origCurrency !== 'PKR' ? origCurrency : undefined,
+    exchangeRate: origCurrency !== 'PKR' ? rate : undefined,
+    currency: 'PKR',
     category: parsed.category || 'General',
     account: parsed.account || detectAccountFromText(rawText),
     personName: parsed.personName && parsed.personName !== 'null' ? parsed.personName : undefined,
     note: parsed.note || rawText,
+    tags: Array.isArray(parsed.tags) ? parsed.tags : undefined,
     confidence: Number(parsed.confidence) || 0.9
   };
 }
@@ -187,12 +239,23 @@ function sanitizeParsedResult(parsed: any, rawText: string): ParsedTransactionRe
 function heuristicParseText(text: string): ParsedTransactionResult {
   const lower = text.toLowerCase();
   
+  // Detect foreign currencies
+  let currency = 'PKR';
+  if (lower.includes('$') || lower.includes('usd')) currency = 'USD';
+  if (lower.includes('€') || lower.includes('eur')) currency = 'EUR';
+  if (lower.includes('£') || lower.includes('gbp')) currency = 'GBP';
+  if (lower.includes('aed') || lower.includes('dirham')) currency = 'AED';
+  if (lower.includes('sar') || lower.includes('riyal')) currency = 'SAR';
+
   // Extract number/amount
-  const amountMatch = text.match(/(?:rs\.?|pkr|rs|amount)?\s*(\d+(?:,\d+)*(?:\.\d+)?)/i);
-  let amount = 0;
+  const amountMatch = text.match(/(?:rs\.?|pkr|usd|\$|€|£|aed|sar|amount)?\s*(\d+(?:,\d+)*(?:\.\d+)?)/i);
+  let rawAmount = 0;
   if (amountMatch) {
-    amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+    rawAmount = parseFloat(amountMatch[1].replace(/,/g, ''));
   }
+
+  let rate = FALLBACK_EXCHANGE_RATES[currency] || 1.0;
+  let amountInPkr = currency !== 'PKR' ? Math.round(rawAmount * rate) : rawAmount;
 
   // Detect type
   let type: TransactionType = 'expense';
@@ -211,7 +274,10 @@ function heuristicParseText(text: string): ParsedTransactionResult {
 
   return {
     type,
-    amount: amount || 100,
+    amount: amountInPkr || 100,
+    originalAmount: currency !== 'PKR' ? rawAmount : undefined,
+    originalCurrency: currency !== 'PKR' ? currency : undefined,
+    exchangeRate: currency !== 'PKR' ? rate : undefined,
     currency: 'PKR',
     category: lower.includes('food') || lower.includes('lunch') || lower.includes('dinner') ? 'Food & Dining' : 'General',
     account: detectAccountFromText(text),

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Env } from './db/types';
 import { MongoDBClient } from './db/mongodb';
 import { TelegramBotHandler } from './telegram/bot';
+import { ScheduledTaskHandler } from './services/scheduler';
 import { renderDashboardHtml } from './ui/dashboard';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -66,7 +67,6 @@ app.get('/api/stats', async (c) => {
 
 // 5. Minimal Web Dashboard UI
 app.get('/', async (c) => {
-  // Passcode Protection if configured
   const configuredPasscode = c.env.DASHBOARD_PASSCODE;
   const reqPasscode = c.req.query('passcode') || c.req.header('x-passcode');
 
@@ -113,4 +113,10 @@ app.get('/', async (c) => {
   return c.html(html);
 });
 
-export default app;
+// Export Worker handler with both fetch and scheduled cron triggers
+export default {
+  fetch: app.fetch,
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(ScheduledTaskHandler.handleScheduled(event, env));
+  }
+};
