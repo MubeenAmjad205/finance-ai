@@ -92,6 +92,34 @@ export interface MergeProposal {
   createdAt: string;
 }
 
+export type GroupAuditAction = 'BILL_LOGGED' | 'MARKED_PAID' | 'EXPENSE_UNDONE' | 'SETTLEMENT_RECORDED' | 'BALANCE_OVERRIDDEN' | 'STATEMENT_IMPORTED';
+
+export interface GroupAuditLog {
+  _id?: string;
+  groupId: number | string;
+  groupTitle?: string;
+  timestamp: string;
+  action: GroupAuditAction;
+  actor: {
+    userId?: number;
+    username?: string;
+    name: string;
+  };
+  expenseId?: string;
+  details: {
+    totalAmount?: number;
+    note?: string;
+    paidBy?: string;
+    participants?: string[];
+    previousState?: any;
+    newState?: any;
+  };
+  rawTelegramText?: string;
+  telegramMessageId?: number;
+  evidenceHash: string; // SHA-256 HMAC digest
+  createdAt: string;
+}
+
 export interface Env {
   AI: any; // Cloudflare Workers AI Binding
   ENVIRONMENT?: string;

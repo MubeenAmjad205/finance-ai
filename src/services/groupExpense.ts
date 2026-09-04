@@ -11,6 +11,7 @@ export interface GroupExpenseParticipant {
 
 export interface GroupExpense {
   _id?: string;
+  billCode?: string; // Short human-friendly ID (e.g. B-7489)
   groupId: number | string;
   groupTitle?: string;
   totalAmount: number;
@@ -22,6 +23,11 @@ export interface GroupExpense {
   note: string;
   participants: GroupExpenseParticipant[];
   timestamp: string;
+}
+
+export function generateBillCode(): string {
+  const code = Math.floor(1000 + Math.random() * 9000);
+  return `B-${code}`;
 }
 
 export interface NetGroupBalance {

@@ -305,6 +305,28 @@ export class MongoDBClient {
     }
     return null;
   }
+
+  // --- Group Audit Logs ---
+  async createGroupAuditLog(audit: any): Promise<string> {
+    const doc = { ...audit, createdAt: new Date().toISOString() };
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('insertOne', 'group_audit_logs', { document: doc });
+      return res?.insertedId || doc._id || 'audit_' + Date.now();
+    }
+    return doc._id || 'audit_' + Date.now();
+  }
+
+  async getGroupAuditLogsByGroupId(groupId: string | number, limit = 20): Promise<any[]> {
+    if (this.isConfigured) {
+      const res = await this.requestDataApi('find', 'group_audit_logs', {
+        filter: this.buildGroupIdFilter(groupId),
+        sort: { timestamp: -1 },
+        limit
+      });
+      return res?.documents || [];
+    }
+    return [];
+  }
 }
 
 /**
@@ -336,6 +358,14 @@ export class GroupMongoDBClient {
 
   async getLastGroupExpense(groupId: string | number): Promise<any | null> {
     return await this.client.getLastGroupExpense(groupId);
+  }
+
+  async createGroupAuditLog(audit: any): Promise<string> {
+    return await this.client.createGroupAuditLog(audit);
+  }
+
+  async getGroupAuditLogsByGroupId(groupId: string | number, limit = 20): Promise<any[]> {
+    return await this.client.getGroupAuditLogsByGroupId(groupId, limit);
   }
 }
 

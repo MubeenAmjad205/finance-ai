@@ -286,6 +286,77 @@ async function runE2ETests() {
     assert(false, 'Security Isolation Test', err.message);
   }
 
+  console.log('\n----------------------------------------------------\n');
+
+  // ----------------------------------------------------
+  // TEST SUITE 5: IMMUTABLE AUDIT TRAIL & SHA-256 EVIDENCE HASHING
+  // ----------------------------------------------------
+  console.log('🔹 [SUITE 5] Testing Immutable Audit Trail & SHA-256 Evidence Hashing...');
+
+  try {
+    const { AuditService } = await import('../src/services/audit');
+    const hash = await AuditService.generateEvidenceHash(-5001, new Date().toISOString(), 1001, 'BILL_LOGGED', 1000, 'Tehzeeb Lunch');
+    assert(typeof hash === 'string' && hash.length === 64, 'SHA-256 Cryptographic Evidence Hash Generation');
+
+    const auditRecord = await AuditService.createAuditRecord({
+      groupId: -5001,
+      action: 'BILL_LOGGED',
+      actor: { userId: 1001, username: 'mubeen', name: 'Mubeen' },
+      expenseId: 'gexp_101',
+      details: { totalAmount: 1000, note: 'Office Lunch', paidBy: 'Mubeen', participants: ['Mubeen', '@ali'] },
+      rawTelegramText: 'Mubeen paid 1000 for lunch with @ali'
+    });
+
+    assert(auditRecord.evidenceHash.length === 64, 'Audit Record Fingerprint Binding');
+
+    const card = AuditService.formatAuditLogCard([auditRecord]);
+    assert(card.includes('IMMUTABLE GROUP AUDIT TRAIL') && card.includes('Logged Bill'), 'Audit Trail Card Formatting');
+
+    // Test /audit command dispatch
+    const auditCmdReq = createMockTelegramRequest({
+      chat: { id: -5001, type: 'supergroup', title: 'Office Team Group' },
+      text: '/audit@quantum_lunch_bot',
+      from: { id: 1001, first_name: 'Mubeen', username: 'mubeen' },
+      message_id: 901
+    }, mockEnv.TELEGRAM_SECRET_TOKEN);
+
+    const auditRes = await groupBot.handleGroupWebhook(auditCmdReq);
+    assert(auditRes.status === 200, 'Group Command: "/audit@quantum_lunch_bot"');
+  } catch (err: any) {
+    assert(false, 'Audit Trail Test Suite', err.message);
+  }
+
+  console.log('\n----------------------------------------------------\n');
+
+  // ----------------------------------------------------
+  // TEST SUITE 6: BILL CODES, PENDING OVERVIEW & QUICK MARK PAID
+  // ----------------------------------------------------
+  console.log('🔹 [SUITE 6] Testing Bill Codes, Pending Overview & Quick-Mark Paid...');
+
+  try {
+    const pendingReq = createMockTelegramRequest({
+      chat: { id: -5001, type: 'supergroup', title: 'Office Team Group' },
+      text: '/bills@quantum_lunch_bot',
+      from: { id: 1001, first_name: 'Mubeen', username: 'mubeen' },
+      message_id: 902
+    }, mockEnv.TELEGRAM_SECRET_TOKEN);
+
+    const pendingRes = await groupBot.handleGroupWebhook(pendingReq);
+    assert(pendingRes.status === 200, 'Group Command: "/bills@quantum_lunch_bot"');
+
+    const markPaidTextReq = createMockTelegramRequest({
+      chat: { id: -5001, type: 'supergroup', title: 'Office Team Group' },
+      text: '@quantum_lunch_bot mark B-1001 as paid',
+      from: { id: 1001, first_name: 'Mubeen', username: 'mubeen' },
+      message_id: 903
+    }, mockEnv.TELEGRAM_SECRET_TOKEN);
+
+    const markRes = await groupBot.handleGroupWebhook(markPaidTextReq);
+    assert(markRes.status === 200, 'Natural Text Quick-Mark Paid (@bot mark B-1001 as paid)');
+  } catch (err: any) {
+    assert(false, 'Pending & Quick-Mark Test Suite', err.message);
+  }
+
   console.log('\n====================================================');
   console.log(`📊 FINAL TEST RESULTS: ${passedTests}/${totalTests} TESTS PASSED (${Math.round((passedTests / totalTests) * 100)}%)`);
   console.log('====================================================');

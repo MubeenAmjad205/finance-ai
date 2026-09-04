@@ -2,7 +2,8 @@ import { Env } from '../db/types';
 import { GroupMongoDBClient } from '../db/mongodb';
 import { AIService } from '../services/ai';
 import { PDFStatementParser } from '../services/pdfParser';
-import { GroupExpenseService, GroupExpense, GroupExpenseParticipant, isBotHandle } from '../services/groupExpense';
+import { GroupExpenseService, GroupExpense, GroupExpenseParticipant, isBotHandle, generateBillCode } from '../services/groupExpense';
+import { AuditService } from '../services/audit';
 
 const inMemoryGroupExpenses: Record<string, GroupExpense[]> = {};
 
@@ -125,6 +126,15 @@ export class TelegramGroupBotHandler {
       } else if (command === '/groupquery' || command === '/query') {
         await this.handleGroupQuery(chatId, args);
         return;
+      } else if (command === '/audit' || command === '/auditlog' || command === '/logs' || command === '/evidence') {
+        await this.handleGroupAuditLog(chatId);
+        return;
+      } else if (command === '/pending' || command === '/bills' || command === '/openbills') {
+        await this.handlePendingGroupBills(chatId);
+        return;
+      } else if (command === '/markpaid' || command === '/paid') {
+        await this.handleMarkPaidByCode(chatId, args, senderName, sender);
+        return;
       } else if (command === '/grouphelp' || command === '/start' || command === '/help') {
         const helpText = `🍔 **Office Group Lunch & Expense AI Bot**\n` +
           `──────────────────────\n` +
@@ -148,6 +158,9 @@ export class TelegramGroupBotHandler {
           `• \`/remind\` - Send friendly tag reminders to unpaid members\n` +
           `• \`/report\` - Formatted executive monthly group report\n` +
           `• \`/members\` - View list of all active group participants\n` +
+          `• \`/bills\` - View list of all open/unpaid group bill cards & IDs\n` +
+          `• \`/markpaid <BillCode>\` - Mark your share paid for a specific bill ID\n` +
+          `• \`/audit\` - View immutable audit trail & SHA-256 evidence logs\n` +
           `• \`/query <question>\` - Ask AI any question about group expenses`;
         
         await this.sendTelegramMessage(chatId, helpText, {
@@ -244,6 +257,17 @@ export class TelegramGroupBotHandler {
         return;
       }
 
+      // Intercept Natural Language Quick-Mark Paid (e.g. "@bot mark B-7489 as paid" or "paid B-7489")
+      const billCodeMatch = text.match(/\b(B-\d{4})\b/i) || text.match(/#(B-\d{4}|\d{4})/i) || text.match(/\b(\d{4})\b/);
+      const isMarkPaidIntent = text.toLowerCase().includes('mark') || text.toLowerCase().includes('paid');
+
+      if (isMarkPaidIntent && billCodeMatch) {
+        const rawCode = billCodeMatch[1];
+        const extractedCode = rawCode.toUpperCase().startsWith('B-') ? rawCode.toUpperCase() : `B-${rawCode}`;
+        const handled = await this.handleMarkPaidByCode(chatId, extractedCode, senderName, sender);
+        if (handled) return;
+      }
+
       const cleanText = text.replace(/@[A-Za-z0-9_]+/g, '').trim();
       const targetText = cleanText.length > 0 ? cleanText : text;
       const intent = AIService.detectMessageIntent(targetText);
@@ -280,8 +304,10 @@ export class TelegramGroupBotHandler {
     }));
 
     const expId = `gexp_${Date.now()}`;
+    const billCode = generateBillCode();
     const groupExp: GroupExpense = {
       _id: expId,
+      billCode,
       groupId: chatId,
       groupTitle: 'Office Group',
       totalAmount: parsed.totalAmount,
@@ -292,6 +318,23 @@ export class TelegramGroupBotHandler {
     };
 
     await this.addGroupExpense(chatId, groupExp);
+
+    // Immutable Audit Trail Recording
+    const auditRecord = await AuditService.createAuditRecord({
+      groupId: chatId,
+      action: 'BILL_LOGGED',
+      actor: { userId: sender.id, username: sender.username, name: senderName },
+      expenseId: expId,
+      details: {
+        totalAmount: parsed.totalAmount,
+        note: parsed.note,
+        paidBy: parsed.paidByName,
+        participants: uniqueParticipants
+      },
+      rawTelegramText: text
+    });
+    await this.db.createGroupAuditLog(auditRecord);
+
     await this.presentGroupExpenseCard(chatId, groupExp);
   }
 
@@ -299,10 +342,11 @@ export class TelegramGroupBotHandler {
     const rawPayerName = exp.paidBy.username ? `@${exp.paidBy.username}` : exp.paidBy.name;
     const payerName = escapeMarkdown(rawPayerName);
     const safeNote = escapeMarkdown(exp.note);
+    const codeTag = exp.billCode ? ` *(ID: #${exp.billCode})*` : '';
     const perPersonShare = Math.round(exp.totalAmount / (exp.participants.length || 1));
     const hasUnpaid = exp.participants.some(p => p.status === 'unpaid');
 
-    let cardText = `🍔 **OFFICE LUNCH EXPENSE LOGGED**\n`;
+    let cardText = `🍔 **OFFICE LUNCH EXPENSE LOGGED**${codeTag}\n`;
     cardText += `──────────────────────\n`;
     cardText += `🏷️ **Bill Title:** ${safeNote}\n`;
     cardText += `💰 **Total Amount:** ${exp.totalAmount.toLocaleString()} PKR *(Paid by ${payerName})*\n`;
@@ -533,6 +577,15 @@ export class TelegramGroupBotHandler {
     const undoneExp = expenses.pop();
     if (undoneExp && undoneExp._id) {
       await this.db.deleteGroupExpense(undoneExp._id);
+
+      const auditRecord = await AuditService.createAuditRecord({
+        groupId: chatId,
+        action: 'EXPENSE_UNDONE',
+        actor: { name: 'Group Admin / User' },
+        expenseId: undoneExp._id,
+        details: { note: undoneExp.note, totalAmount: undoneExp.totalAmount }
+      });
+      await this.db.createGroupAuditLog(auditRecord);
     }
 
     await this.sendTelegramMessage(
@@ -702,6 +755,99 @@ export class TelegramGroupBotHandler {
     await this.sendTelegramMessage(chatId, answer, { parse_mode: 'Markdown' });
   }
 
+  private async handleGroupAuditLog(chatId: number): Promise<void> {
+    const logs = await this.db.getGroupAuditLogsByGroupId(chatId, 10);
+    const cardText = AuditService.formatAuditLogCard(logs);
+    await this.sendTelegramMessage(chatId, cardText, { parse_mode: 'Markdown' });
+  }
+
+  private async handlePendingGroupBills(chatId: number): Promise<void> {
+    const expenses = await this.getGroupExpenses(chatId);
+    const openBills = expenses.filter(e => e.participants.some(p => p.status === 'unpaid'));
+
+    if (openBills.length === 0) {
+      await this.sendTelegramMessage(chatId, `🟢 **ALL GROUP BILLS ARE FULLY SETTLED!**\nNo open or pending unpaid bills in this group.`, { parse_mode: 'Markdown' });
+      return;
+    }
+
+    let cardText = `📋 **OPEN & PENDING GROUP BILL CARDS**\n`;
+    cardText += `──────────────────────\n`;
+    cardText += `*Showing ${openBills.length} unpaid bill card(s) in this group:*\n\n`;
+
+    for (let i = 0; i < openBills.length; i++) {
+      const bill = openBills[i];
+      const code = bill.billCode || bill._id;
+      const payerName = escapeMarkdown(bill.paidBy.username ? `@${bill.paidBy.username}` : bill.paidBy.name);
+      const unpaidList = bill.participants
+        .filter(p => p.status === 'unpaid')
+        .map(p => `${escapeMarkdown(p.username ? `@${p.username}` : p.name)} (${p.shareAmount.toLocaleString()} PKR)`)
+        .join(', ');
+
+      cardText += `${i + 1}️⃣ **Bill ID: \`#${code}\`** — ${escapeMarkdown(bill.note)} (${bill.totalAmount.toLocaleString()} PKR)\n`;
+      cardText += `   • Paid by: ${payerName}\n`;
+      cardText += `   • 🔴 Unpaid: ${unpaidList}\n\n`;
+    }
+
+    cardText += `💡 *To mark your payment without finding old cards:*\n`;
+    cardText += `Type: \`/markpaid <BillCode>\` or \`@quantum_lunch_bot mark <BillCode> as paid\``;
+
+    await this.sendTelegramMessage(chatId, cardText, { parse_mode: 'Markdown' });
+  }
+
+  private async handleMarkPaidByCode(chatId: number, codeOrId: string, senderName: string, senderUser: any): Promise<boolean> {
+    if (!codeOrId || codeOrId.trim().length === 0) {
+      await this.sendTelegramMessage(chatId, `⚠️ **Usage:** \`/markpaid <BillCode>\` (e.g. \`/markpaid B-7489\`)`);
+      return false;
+    }
+
+    const cleanCode = codeOrId.trim().toUpperCase().replace('#', '').replace('BILL-', 'B-');
+    const expenses = await this.getGroupExpenses(chatId);
+    const exp = expenses.find(e => 
+      (e.billCode && e.billCode.toUpperCase() === cleanCode) || 
+      (e._id && e._id.toUpperCase() === cleanCode)
+    );
+
+    if (!exp) {
+      await this.sendTelegramMessage(chatId, `❌ **Bill Not Found:** Could not find open bill card matching \`#${cleanCode}\`. Type \`/bills\` to view open bill IDs.`);
+      return false;
+    }
+
+    let markedAny = false;
+    for (const p of exp.participants) {
+      if (p.username === senderUser.username || p.name.toLowerCase() === senderName.toLowerCase()) {
+        p.status = 'paid';
+        p.paidTimestamp = new Date().toISOString();
+        markedAny = true;
+      }
+    }
+
+    if (!markedAny && exp.participants.length > 0) {
+      // Mark first unpaid participant if triggered directly by name or admin
+      const unpaid = exp.participants.find(p => p.status === 'unpaid');
+      if (unpaid) {
+        unpaid.status = 'paid';
+        unpaid.paidTimestamp = new Date().toISOString();
+        markedAny = true;
+      }
+    }
+
+    await this.db.updateGroupExpense(exp._id!, { participants: exp.participants });
+
+    // Record Audit Log
+    const auditRecord = await AuditService.createAuditRecord({
+      groupId: chatId,
+      action: 'MARKED_PAID',
+      actor: { userId: senderUser.id, username: senderUser.username, name: senderName },
+      expenseId: exp._id,
+      details: { note: exp.note, totalAmount: exp.totalAmount }
+    });
+    await this.db.createGroupAuditLog(auditRecord);
+
+    await this.sendTelegramMessage(chatId, `✅ **Payment Marked for #${exp.billCode || exp._id}!** Updated bill card below:`, { parse_mode: 'Markdown' });
+    await this.presentGroupExpenseCard(chatId, exp);
+    return true;
+  }
+
   public async handleGroupCallbackQuery(cb: any): Promise<void> {
     const callbackId = cb.id;
     const chatId = cb.message.chat.id;
@@ -726,6 +872,15 @@ export class TelegramGroupBotHandler {
         }
         await this.answerCallback(callbackId, `✅ Marked ${userName} as paid!`);
         await this.presentGroupExpenseCard(chatId, exp, messageId);
+
+        const auditRecord = await AuditService.createAuditRecord({
+          groupId: chatId,
+          action: 'MARKED_PAID',
+          actor: { userId: user.id, username: user.username, name: userName },
+          expenseId: expId,
+          details: { note: exp.note, totalAmount: exp.totalAmount }
+        });
+        await this.db.createGroupAuditLog(auditRecord);
       }
     } else if (action === 'g_pay_info') {
       const expenses = await this.getGroupExpenses(chatId);
