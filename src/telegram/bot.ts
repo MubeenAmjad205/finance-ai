@@ -432,7 +432,7 @@ ${tx.personName ? `👤 **Person Ledger:** ${tx.personName}\n` : ''}🕒 **Times
   private async sendTelegramMessage(chatId: number, text: string, options: Record<string, any> = {}): Promise<void> {
     if (!this.botToken) return;
     const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
-    await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -441,12 +441,26 @@ ${tx.personName ? `👤 **Person Ledger:** ${tx.personName}\n` : ''}🕒 **Times
         ...options
       })
     });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('[sendTelegramMessage Personal Bot Error]:', res.status, errText);
+      if (options.parse_mode && errText.includes("Can't parse entities")) {
+        console.warn('[sendTelegramMessage Personal Bot Fallback]: Resending without parse_mode');
+        const fallbackOptions = { ...options };
+        delete fallbackOptions.parse_mode;
+        await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text, ...fallbackOptions })
+        });
+      }
+    }
   }
 
   private async editTelegramMessage(chatId: number, messageId: number, text: string, options: Record<string, any> = {}): Promise<void> {
     if (!this.botToken) return;
     const url = `https://api.telegram.org/bot${this.botToken}/editMessageText`;
-    await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -456,6 +470,25 @@ ${tx.personName ? `👤 **Person Ledger:** ${tx.personName}\n` : ''}🕒 **Times
         ...options
       })
     });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('[editTelegramMessage Personal Bot Error]:', res.status, errText);
+      if (options.parse_mode && errText.includes("Can't parse entities")) {
+        console.warn('[editTelegramMessage Personal Bot Fallback]: Resending without parse_mode');
+        const fallbackOptions = { ...options };
+        delete fallbackOptions.parse_mode;
+        await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            message_id: messageId,
+            text,
+            ...fallbackOptions
+          })
+        });
+      }
+    }
   }
 
   private async answerCallback(callbackQueryId: string, text: string): Promise<void> {

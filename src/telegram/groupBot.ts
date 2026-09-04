@@ -6,6 +6,11 @@ import { GroupExpenseService, GroupExpense, GroupExpenseParticipant } from '../s
 
 const inMemoryGroupExpenses: Record<string, GroupExpense[]> = {};
 
+function escapeMarkdown(text: string): string {
+  if (!text) return '';
+  return text.replace(/[_*`\[\]]/g, '\\$&');
+}
+
 export class TelegramGroupBotHandler {
   private env: Env;
   private db: GroupMongoDBClient;
@@ -290,19 +295,22 @@ export class TelegramGroupBotHandler {
   }
 
   private async presentGroupExpenseCard(chatId: number, exp: GroupExpense, messageIdToEdit?: number): Promise<void> {
-    const payerName = exp.paidBy.username ? `@${exp.paidBy.username}` : exp.paidBy.name;
+    const rawPayerName = exp.paidBy.username ? `@${exp.paidBy.username}` : exp.paidBy.name;
+    const payerName = escapeMarkdown(rawPayerName);
+    const safeNote = escapeMarkdown(exp.note);
     const perPersonShare = Math.round(exp.totalAmount / (exp.participants.length || 1));
     const hasUnpaid = exp.participants.some(p => p.status === 'unpaid');
 
     let cardText = `🍔 **OFFICE LUNCH EXPENSE LOGGED**\n`;
     cardText += `──────────────────────\n`;
-    cardText += `🏷️ **Bill Title:** ${exp.note}\n`;
+    cardText += `🏷️ **Bill Title:** ${safeNote}\n`;
     cardText += `💰 **Total Amount:** ${exp.totalAmount.toLocaleString()} PKR *(Paid by ${payerName})*\n`;
     cardText += `💵 **Share Per Person:** ${perPersonShare.toLocaleString()} PKR\n\n`;
 
     cardText += `👥 **Member Status:**\n`;
     for (const p of exp.participants) {
-      const displayName = p.username ? `@${p.username}` : p.name;
+      const rawName = p.username ? `@${p.username}` : p.name;
+      const displayName = escapeMarkdown(rawName);
       const statusIcon = p.status === 'paid' ? '🟢 Paid' : `🔴 Unpaid (${p.shareAmount.toLocaleString()} PKR)`;
       cardText += `  • ${displayName}: ${statusIcon}\n`;
     }
@@ -318,7 +326,7 @@ export class TelegramGroupBotHandler {
     if (hasUnpaid) {
       inlineKeyboard.push([
         { text: `💳 Mark I Have Paid`, callback_data: `g_mark_paid:${exp._id}` },
-        { text: `📲 Payment Info`, callback_data: `g_pay_info:${exp.paidBy.name}` }
+        { text: `📲 Payment Info`, callback_data: `g_pay_info:${exp._id}` }
       ]);
       inlineKeyboard.push([
         { text: `🔔 Remind Unpaid`, callback_data: `g_remind_unpaid:${exp._id}` },
@@ -326,7 +334,7 @@ export class TelegramGroupBotHandler {
       ]);
     } else {
       inlineKeyboard.push([
-        { text: `📲 Payment Details`, callback_data: `g_pay_info:${exp.paidBy.name}` },
+        { text: `📲 Payment Details`, callback_data: `g_pay_info:${exp._id}` },
         { text: `📊 Full Group Ledger`, callback_data: `g_show_ledger` }
       ]);
     }
@@ -681,9 +689,12 @@ export class TelegramGroupBotHandler {
         await this.presentGroupExpenseCard(chatId, exp, messageId);
       }
     } else if (action === 'g_pay_info') {
-      const payer = parts[1] || 'Payer';
-      await this.answerCallback(callbackId, `📲 Send payment to ${payer}`);
-      await this.sendTelegramMessage(chatId, `📲 **Payment Details for ${payer}:**\nSend Raast / JazzCash / EasyPaisa transfer to ${payer}. Once transferred, tap *Mark I Have Paid*!`);
+      const expenses = await this.getGroupExpenses(chatId);
+      const exp = expenses.find(e => e._id === expId);
+      const rawPayer = exp ? (exp.paidBy.username ? `@${exp.paidBy.username}` : exp.paidBy.name) : (parts[1] || 'Payer');
+      const safePayer = escapeMarkdown(rawPayer);
+      await this.answerCallback(callbackId, `📲 Send payment to ${rawPayer}`);
+      await this.sendTelegramMessage(chatId, `📲 **Payment Details for ${safePayer}:**\nSend Raast / JazzCash / EasyPaisa transfer to ${safePayer}. Once transferred, tap *Mark I Have Paid*!`, { parse_mode: 'Markdown' });
     } else if (action === 'g_remind_unpaid') {
       await this.answerCallback(callbackId, `🔔 Sent reminder to unpaid members!`);
       await this.sendGroupReminder(chatId);
@@ -705,7 +716,7 @@ export class TelegramGroupBotHandler {
   private async editTelegramMessage(chatId: number, messageId: number, text: string, options: Record<string, any> = {}): Promise<void> {
     if (!this.botToken) return;
     const url = `https://api.telegram.org/bot${this.botToken}/editMessageText`;
-    await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -715,16 +726,49 @@ export class TelegramGroupBotHandler {
         ...options
       })
     });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('[editTelegramMessage Error]:', res.status, errText);
+      if (options.parse_mode && errText.includes("Can't parse entities")) {
+        console.warn('[editTelegramMessage Fallback]: Resending without parse_mode');
+        const fallbackOptions = { ...options };
+        delete fallbackOptions.parse_mode;
+        await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            message_id: messageId,
+            text,
+            ...fallbackOptions
+          })
+        });
+      }
+    }
   }
 
   private async sendTelegramMessage(chatId: number, text: string, options: Record<string, any> = {}): Promise<void> {
     if (!this.botToken) return;
     const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
-    await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, ...options })
     });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('[sendTelegramMessage Error]:', res.status, errText);
+      if (options.parse_mode && errText.includes("Can't parse entities")) {
+        console.warn('[sendTelegramMessage Fallback]: Resending without parse_mode');
+        const fallbackOptions = { ...options };
+        delete fallbackOptions.parse_mode;
+        await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text, ...fallbackOptions })
+        });
+      }
+    }
   }
 
   private async answerCallback(callbackQueryId: string, text: string): Promise<void> {
