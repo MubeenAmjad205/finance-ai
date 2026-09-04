@@ -228,18 +228,29 @@ export class TelegramGroupBotHandler {
       return;
     }
 
-    // 5. Handle Group Text Input (Smart Intent Classification)
+    // 5. Handle Group Text Input (Smart Mention Filter & Intent Classification)
     if (text.trim().length > 0) {
-      const intent = AIService.detectMessageIntent(text);
+      const isReplyToBot = Boolean(msg.reply_to_message?.from?.is_bot);
+      const mentionsBot = text.includes('@') && (text.toLowerCase().includes('bot') || text.toLowerCase().includes('quantum_lunch_bot'));
+      const isExplicitBill = (text.toLowerCase().includes('paid') || text.toLowerCase().includes('spent')) && /\d+/.test(text) && text.includes('@');
+
+      // IGNORE casual un-mentioned group chatter so office group chat is never spammed!
+      if (!mentionsBot && !isReplyToBot && !isExplicitBill) {
+        return;
+      }
+
+      const cleanText = text.replace(/@[A-Za-z0-9_]+/g, '').trim();
+      const targetText = cleanText.length > 0 ? cleanText : text;
+      const intent = AIService.detectMessageIntent(targetText);
 
       if (intent === 'chat') {
-        const chatReply = await AIService.generateChatResponse(this.env, text);
+        const chatReply = await AIService.generateChatResponse(this.env, targetText);
         await this.sendTelegramMessage(chatId, chatReply, { parse_mode: 'Markdown' });
         return;
       }
 
       if (intent === 'question') {
-        await this.handleGroupQuery(chatId, text);
+        await this.handleGroupQuery(chatId, targetText);
         return;
       }
 

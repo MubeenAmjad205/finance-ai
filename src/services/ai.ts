@@ -102,10 +102,11 @@ Provide 3 actionable, highly practical financial tips tailored for Pakistani use
    * Conversational Chat Response Generator
    */
   static async generateChatResponse(env: Env, text: string): Promise<string> {
-    const prompt = `You are a friendly personal finance AI assistant for Pakistani users.
-User Message: "${text}"
+    const cleanText = text.replace(/@[A-Za-z0-9_]+/g, '').trim();
+    const prompt = `You are a friendly, intelligent personal finance AI assistant for Pakistani users.
+User Message: "${cleanText || text}"
 
-Reply in a warm, helpful, human-like tone in 1-2 short sentences. Mention that you can track their expenses, voice notes, receipts, and account balances.`;
+Reply in a warm, natural, human-like conversational tone in 1-2 friendly sentences. Address what the user said directly without repeating canned intro pitches.`;
 
     try {
       if (env.AI && typeof env.AI.run === 'function') {
@@ -114,8 +115,8 @@ Reply in a warm, helpful, human-like tone in 1-2 short sentences. Mention that y
           max_tokens: 150
         });
 
-        const reply = response?.response || response?.result;
-        if (reply && typeof reply === 'string') {
+        const reply = response?.response || response?.result?.response || (typeof response === 'string' ? response : '');
+        if (reply && typeof reply === 'string' && reply.trim().length > 0) {
           return reply.trim();
         }
       }
@@ -123,7 +124,15 @@ Reply in a warm, helpful, human-like tone in 1-2 short sentences. Mention that y
       console.error('[Workers AI Chat Response Error]:', err);
     }
 
-    return `Hello! 👋 I am your Personal Finance AI assistant. You can tell me expenses like *"Spent 1450 at Tehzeeb via JazzCash"*, send voice notes, upload receipts, or ask questions!`;
+    const lower = cleanText.toLowerCase();
+    if (lower.includes('how are') || lower.includes('how r u')) {
+      return `I am doing great, thank you for asking! 😊 How can I help you with your expenses or budget today?`;
+    }
+    if (lower.includes('hi') || lower.includes('hello') || lower.includes('hey')) {
+      return `Hello! 👋 How can I assist you with your finances today?`;
+    }
+
+    return `I am here to help! Tell me about an expense, ask a question, or send a voice note/receipt photo anytime.`;
   }
 
   /**
