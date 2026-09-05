@@ -196,5 +196,6 @@ export interface Env {
   MONGODB_APP_ID?: string;
   MONGODB_DATABASE?: string;
   MONGODB_DATA_SOURCE?: string;
+  MONGODB_DATA_API_URL?: string;
   DASHBOARD_PASSCODE?: string;
 }

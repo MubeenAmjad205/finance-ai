@@ -17,8 +17,8 @@ export class AccountRepository {
     });
   }
 
-  async setBalance(accountName: string, newBalance: number): Promise<void> {
-    await this.client.execute('updateOne', 'accounts', {
+  async setBalance(accountName: string, newBalance: number): Promise<boolean> {
+    const res = await this.client.execute<{ matchedCount?: number; modifiedCount?: number; upsertedId?: string }>('updateOne', 'accounts', {
       filter: { name: accountName },
       update: {
         $set: { balance: newBalance, updatedAt: new Date().toISOString() },
@@ -26,10 +26,11 @@ export class AccountRepository {
       },
       upsert: true
     });
+    return Boolean(res && (res.matchedCount !== undefined || res.modifiedCount !== undefined || res.upsertedId !== undefined));
   }
 
-  async updateBalance(accountName: string, delta: number): Promise<void> {
-    await this.client.execute('updateOne', 'accounts', {
+  async updateBalance(accountName: string, delta: number): Promise<boolean> {
+    const res = await this.client.execute<{ matchedCount?: number; modifiedCount?: number; upsertedId?: string }>('updateOne', 'accounts', {
       filter: { name: accountName },
       update: {
         $inc: { balance: delta },
@@ -38,6 +39,7 @@ export class AccountRepository {
       },
       upsert: true
     });
+    return Boolean(res && (res.matchedCount !== undefined || res.modifiedCount !== undefined || res.upsertedId !== undefined));
   }
 
   detectAccountType(name: string): 'mobile_wallet' | 'bank' | 'cash' | 'card' {

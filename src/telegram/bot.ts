@@ -110,7 +110,14 @@ export class TelegramBotHandler {
 
     // 2. Handle Voice Note
     if (msg.voice || msg.audio) {
-      await VoiceHandler.handleVoiceNote(this.env, this.botToken, this.db, chatId, msg);
+      await VoiceHandler.handleVoiceNote(
+        this.env,
+        this.botToken,
+        this.db,
+        chatId,
+        msg,
+        async (transcribed) => this.handleTextMessage(chatId, transcribed, msg.message_id)
+      );
       return;
     }
 

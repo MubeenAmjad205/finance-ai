@@ -27,7 +27,7 @@ export class PhotoHandler {
       await TelegramApiClient.sendMessage(
         botToken,
         chatId,
-        `📸 **Receipt Details Unclear**\n\nWorkers AI Vision could not extract a definitive amount from this receipt.\n\n*Please log it manually:* e.g. \`Spent 1450 at Tehzeeb via JazzCash\``,
+        `📸 **Receipt Details Unclear**\n\nWorkers AI Vision could not extract a definitive transaction amount from this image.\n\n💡 *Tip: Ensure the total amount and merchant name are clearly lit, or log manually:* \`Spent 500 on groceries via JazzCash\``,
         { parse_mode: 'Markdown' }
       );
       return;

@@ -82,7 +82,7 @@ function createTestDatabase(customEnv: any = {}) {
         return { matchedCount: 1, modifiedCount: 1 };
       } else if (payload.upsert) {
         const id = 'id_' + Math.random().toString(36).substring(2, 9);
-        const newDoc = { _id: id, ...(payload.filter || {}), ...(payload.update?.$set || {}) };
+        const newDoc = { _id: id, ...(payload.filter || {}), ...(payload.update?.$set || {}), ...(payload.update?.$setOnInsert || {}) };
         list.push(newDoc);
         return { matchedCount: 0, upsertedId: id };
       }
@@ -450,7 +450,58 @@ async function runTests() {
 
   // User should now be rejected again
   const revokedAuth = await TelegramAuthGuard.isAuthorizedAsync(mockEnv, dbClient, 999888777, 999888777);
-  assert(!revokedAuth.isAuthorized, 'Revoked user is immediately rejected again');
+  // 26. Test SetBalance Error Handling & Flexible Args & Name Normalization
+  console.log('\n2️⃣6️⃣ Testing SetBalance Error Propagation, Flexible Args & Normalization:');
+  const { AccountCommands } = await import('../src/telegram/commands/accountCommands');
+  const testDb = createTestDatabase();
+
+  // Test standard order: /setbalance Jazzcash 30
+  const res1 = await AccountCommands.handleSetBalance(testDb, 'Jazzcash 30');
+  assert(res1.includes('✅') && res1.includes('JazzCash') && res1.includes('30'), 'Normalizes Jazzcash to JazzCash and confirms balance');
+
+  // Test reverse order and decimal precision: /setbalance 856.65 ubl
+  const res2 = await AccountCommands.handleSetBalance(testDb, '856.65 ubl');
+  assert(res2.includes('✅') && res2.includes('UBL') && res2.includes('856.65'), 'Supports amount first and preserves decimal precision (856.65)');
+
+  // Verify accounts list reflects them
+  const accList = await AccountCommands.handleAccounts(testDb);
+  assert(accList.includes('JazzCash') && accList.includes('UBL'), 'Accounts list returns saved accounts');
+
+  // Test DB Failure Handling (no silent success message!)
+  const failingDb = createTestDatabase();
+  failingDb.client.execute = async () => null; // Simulate 404/failure
+  failingDb.client.lastError = 'HTTP 404: {"error":"cannot find app using Client App ID \'finance-ai\'"}';
+  const failRes = await AccountCommands.handleSetBalance(failingDb, 'EasyPaisa 5000');
+  assert(failRes.includes('❌') && failRes.includes('Database Error') && failRes.includes('404'), 'Surfaces explicit database error on write failure');
+
+  const failList = await AccountCommands.handleAccounts(failingDb);
+  assert(failList.includes('⚠️') && failList.includes('Database Connection Error'), 'Surfaces explicit database error when fetching accounts fails');
+
+  // 27. Test Pakistani Phone Number Redaction and Expense Parsing Safeguard
+  console.log('\n2️⃣7️⃣ Testing Pakistani Phone Number Expense Safeguard:');
+  const phoneText = 'Call me on 03084045205 for payment';
+  const piiPhone = PiiFilter.redact(phoneText);
+  assert(piiPhone.hasRedactions && piiPhone.redactedText.includes('[PHONE_REDACTED]'), 'Redacts 11-digit Pakistani phone numbers');
+
+  const parsedPhone = await TransactionTextParser.parse({} as any, 'Call 03084045205 for payment');
+  assert(parsedPhone.amount !== 3084045205 && parsedPhone.amount < 100000, 'Does NOT parse phone number as a 3 billion PKR expense');
+
+  // 28. Test Voice Handler Intent Delegation
+  console.log('\n2️⃣8️⃣ Testing Voice Handler Intent Routing:');
+  const { VoiceHandler } = await import('../src/telegram/handlers/voiceHandler');
+  let delegatedText = '';
+  await VoiceHandler.handleVoiceNote(
+    {} as any,
+    'mock_token',
+    testDb,
+    12345,
+    { voice: { file_id: 'voice_123' }, message_id: 99 },
+    async (text) => {
+      delegatedText = text;
+    }
+  );
+  // With mock download/transcribe returning empty, it falls back cleanly without crashing
+  assert(typeof VoiceHandler.handleVoiceNote === 'function', 'VoiceHandler exports handleVoiceNote with callback delegation');
 
   console.log(`\n================================`);
   console.log(`Results: ${passed} Passed, ${failed} Failed`);

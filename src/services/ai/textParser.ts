@@ -169,11 +169,18 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
     const lower = text.toLowerCase();
     const currency = CurrencyService.detectCurrency(text);
 
+    // Strip Pakistani phone numbers before extracting transaction amount
+    const textWithoutPhone = text.replace(/(?:\+92|0092|92|0)?3\d{2}[-\s]?\d{7}\b/g, '');
+
     // Extract amount
-    const amountMatch = text.match(/(?:rs\.?|pkr|usd|\$|€|£|aed|sar|amount)?\s*(\d+(?:,\d+)*(?:\.\d+)?)/i);
+    const amountMatch = textWithoutPhone.match(/(?:rs\.?|pkr|usd|\$|€|£|aed|sar|amount)?\s*(\d+(?:,\d+)*(?:\.\d+)?)/i);
     let rawAmount = 0;
     if (amountMatch) {
-      rawAmount = parseFloat(amountMatch[1].replace(/,/g, ''));
+      const candidate = parseFloat(amountMatch[1].replace(/,/g, ''));
+      const digitsOnly = amountMatch[1].replace(/\D/g, '');
+      if (!(digitsOnly.length >= 10 && (digitsOnly.startsWith('03') || digitsOnly.startsWith('923')))) {
+        rawAmount = candidate;
+      }
     }
 
     const { amountInPkr, rate } = CurrencyService.convertToPkr(rawAmount, currency);

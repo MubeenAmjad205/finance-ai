@@ -11,6 +11,9 @@ export class PiiFilter {
   // OTP or PIN (4-6 digits preceded by otp/pin label)
   private static readonly OTP_PATTERN = /\b(?:otp|one\s*time\s*password|pin\s*code|verification\s*code)[\s:=]*([0-9]{4,6})\b/gi;
 
+  // Pakistani Mobile Numbers (e.g., 03001234567, +923001234567, 0308-4045205)
+  private static readonly PHONE_PATTERN = /\b(?:\+92|0092|92|0)?3\d{2}[-\s]?\d{7}\b/g;
+
   /**
    * Redact sensitive personal identity and banking credentials from text
    */
@@ -55,6 +58,14 @@ export class PiiFilter {
       modified = modified.replace(this.OTP_PATTERN, () => {
         hasRedactions = true;
         return 'OTP: [REDACTED]';
+      });
+    }
+
+    // 5. Redact Pakistani Phone Numbers
+    if (this.PHONE_PATTERN.test(modified)) {
+      modified = modified.replace(this.PHONE_PATTERN, () => {
+        hasRedactions = true;
+        return '[PHONE_REDACTED]';
       });
     }
 

@@ -11,17 +11,19 @@ export class VisionReceiptService {
     try {
       if (env.AI && typeof (env.AI as any).run === 'function') {
         const imageVector = Array.from(new Uint8Array(imageArrayBuffer));
-        const prompt = `This is a transaction screenshot or receipt from a Pakistani payment app (JazzCash, EasyPaisa, Meezan, HBL, etc.).
-Extract the total amount, currency (PKR/USD), account/bank name, receiver/sender name, transaction reference ID, and transaction type.
+        const prompt = `This is a financial image: either a payment receipt, transaction confirmation slip, or a mobile banking app dashboard/balance card (JazzCash, EasyPaisa, Meezan, HBL, UBL, SadaPay, NayaPay, etc.).
+Extract the key financial details:
+- If this is a payment receipt/transfer confirmation: extract total paid/transferred amount, type ("expense", "income", or "transfer").
+- If this is an app dashboard or balance screen: extract the current visible account balance as the amount, account name, and set category to "Account Balance".
 Return JSON ONLY:
 {
   "type": "expense" | "income" | "transfer",
   "amount": number,
   "currency": "PKR",
-  "category": "Bills & Utilities" | "Food & Dining" | "Transfer" | "General",
-  "account": "JazzCash" | "EasyPaisa" | "Meezan Bank" | "HBL" | "NayaPay" | "Cash",
-  "personName": "Receiver or Sender name if visible",
-  "note": "Transaction screenshot payment",
+  "category": "Bills & Utilities" | "Food & Dining" | "Transfer" | "Account Balance" | "General",
+  "account": "JazzCash" | "EasyPaisa" | "Meezan Bank" | "HBL" | "UBL" | "NayaPay" | "SadaPay" | "Cash",
+  "personName": "Receiver or Sender name if visible or null",
+  "note": "Payment or balance description",
   "confidence": 0.9
 }`;
 

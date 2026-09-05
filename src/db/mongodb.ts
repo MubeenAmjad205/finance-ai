@@ -102,11 +102,11 @@ export class MongoDBClient {
     return this.accounts.getAll();
   }
 
-  async setAccountBalance(accountName: string, newBalance: number): Promise<void> {
+  async setAccountBalance(accountName: string, newBalance: number): Promise<boolean> {
     return this.accounts.setBalance(accountName, newBalance);
   }
 
-  async updateAccountBalance(accountName: string, delta: number): Promise<void> {
+  async updateAccountBalance(accountName: string, delta: number): Promise<boolean> {
     return this.accounts.updateBalance(accountName, delta);
   }
 
