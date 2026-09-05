@@ -1,17 +1,25 @@
 import { Env } from '../../db/types';
+import { TemporalResolver } from '../temporalResolver';
+import { PromptGuard } from './promptGuard';
 
 export class FinancialQueryService {
   /**
    * Natural Language Financial Query Response Generator
    */
   static async answer(env: Env, queryText: string, contextSummary: string, isGroup = false): Promise<string> {
+    const { sanitizedText } = PromptGuard.sanitize(queryText);
+    const temporal = TemporalResolver.getCurrentContext();
+
     const prompt = `You are a helpful personal finance advisor${isGroup ? ' for an office lunch and shared group expense team' : ''}.
+
+${temporal.promptContext}
+
 Context on current account balances & transaction history:
 ${contextSummary}
 
-User Question: "${queryText}"
+User Question: "${sanitizedText}"
 
-Provide a friendly, concise, human-like response in 2-4 sentences explaining the stats clearly.`;
+Provide a friendly, concise, human-like response in 2-4 sentences explaining the stats clearly and accurately referencing dates.`;
 
     try {
       if (env.AI && typeof (env.AI as any).run === 'function') {

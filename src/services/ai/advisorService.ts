@@ -46,18 +46,28 @@ Provide 3 actionable, highly practical financial tips tailored for Pakistani use
   }
 
   /**
-   * Conversational Chat Response Generator
+   * Conversational Chat Response Generator with Roman Urdu & English Persona
    */
   static async generateChatResponse(env: Env, text: string): Promise<string> {
-    const prompt = `You are a friendly personal finance AI assistant for Pakistani users.
-User Message: "${text}"
+    const { sanitizedText } = (await import('./promptGuard')).PromptGuard.sanitize(text);
+    const { IntentClassifier } = await import('./intentClassifier');
+    const lang = IntentClassifier.detectLanguage(sanitizedText);
 
+    const systemPrompt = lang === 'roman_urdu'
+      ? `You are an authentic, smart Pakistani personal finance AI buddy.
+The user speaks Roman Urdu/Urdu. Reply warmly in natural conversational Roman Urdu (1-2 sentences).
+Give an example of how you can record expenses (e.g. "Chai ke 250 Cash se" or "Petrol 2000 Meezan se") or help with hisab.`
+      : `You are a friendly personal finance AI assistant for Pakistani users.
+User Message: "${sanitizedText}"
 Reply in a warm, helpful, human-like tone in 1-2 short sentences. Mention that you can track their expenses, voice notes, receipts, and account balances.`;
 
     try {
       if (env.AI && typeof (env.AI as any).run === 'function') {
         const response: any = await (env.AI as any).run('@cf/meta/llama-3.1-8b-instruct', {
-          messages: [{ role: 'user', content: prompt }],
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: sanitizedText }
+          ],
           max_tokens: 150
         });
 
@@ -68,6 +78,10 @@ Reply in a warm, helpful, human-like tone in 1-2 short sentences. Mention that y
       }
     } catch (err) {
       console.error('[AdvisorService Chat Error]:', err);
+    }
+
+    if (lang === 'roman_urdu') {
+      return `Salam! 👋 Main aapka Finance AI Assistant hoon. Aap mujhe kharcha bata sakte hain jaise *"Tehzeeb par 1450 JazzCash se"* ya voice note bhej sakte hain!`;
     }
 
     return `Hello! 👋 I am your Personal Finance AI assistant. You can tell me expenses like *"Spent 1450 at Tehzeeb via JazzCash"*, send voice notes, upload receipts, or ask questions!`;

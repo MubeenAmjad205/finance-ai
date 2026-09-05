@@ -1,7 +1,26 @@
-import { Transaction, Person, Account, BudgetCap, Reminder, SavingsGoal } from './types';
+import { Transaction, Person, Account, BudgetCap, Reminder, SavingsGoal, Kameti } from './types';
 
 export class InMemoryMockStore {
   private static instance: InMemoryMockStore;
+
+  public kametis: Kameti[] = [
+    {
+      _id: 'kameti_1',
+      name: 'Office Monthly Kameti',
+      monthlyAmount: 10000,
+      totalMonths: 10,
+      startDate: new Date().toISOString().substring(0, 10),
+      currentMonth: 1,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      members: [
+        { name: 'Ali Khan', payoutMonth: 1, payoutReceived: false, paidMonths: [1] },
+        { name: 'Usman Ahmed', payoutMonth: 2, payoutReceived: false, paidMonths: [1] },
+        { name: 'Hamza Tariq', payoutMonth: 3, payoutReceived: false, paidMonths: [] },
+        { name: 'Bilal Farooq', payoutMonth: 4, payoutReceived: false, paidMonths: [] }
+      ]
+    }
+  ];
 
   public transactions: Transaction[] = [
     {

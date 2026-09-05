@@ -65,7 +65,16 @@ export class PersonCommands {
     const resolved = await PersonResolver.resolvePerson(db, personName);
     const amountOwed = resolved.person ? Math.max(resolved.person.netBalance, 1000) : 1000;
 
-    return `📲 **Shareable Raast / Mobile Wallet Payment Request**\n──────────────────────\n👤 **To:** ${resolved.person?.name || personName}\n💰 **Amount Owed:** ${this.formatCurrency(amountOwed)}\n\n*Copy & paste message to send to ${personName}:*\n\`"Hey ${resolved.person?.name || personName}! Please transfer ${this.formatCurrency(amountOwed)} for our shared expense via Raast / JazzCash / EasyPaisa. Thanks!"\``;
+    const { RaastQrService } = await import('../../services/raastQrService');
+    const emvPayload = RaastQrService.generateEmvCoPayload({
+      receiverTitle: 'Finance AI Settlement',
+      ibanOrMobile: '03001234567',
+      amount: amountOwed,
+      note: `Settlement with ${resolved.person?.name || personName}`
+    });
+    const qrUrl = RaastQrService.getQrImageUrl(emvPayload);
+
+    return `📲 **Shareable Raast / Mobile Wallet Payment Request**\n──────────────────────\n👤 **To:** ${resolved.person?.name || personName}\n💰 **Amount Owed:** ${this.formatCurrency(amountOwed)}\n\n*Copy & paste message to send to ${personName}:*\n\`"Hey ${resolved.person?.name || personName}! Please transfer ${this.formatCurrency(amountOwed)} for our shared expense via Raast. Scan QR or transfer to my Raast ID. Thanks!"\`\n\n🖼️ **Instant Raast Scan-to-Pay QR:**\n[Tap to Open & Scan QR Code](${qrUrl})`;
   }
 
   private static formatCurrency(amount: number): string {

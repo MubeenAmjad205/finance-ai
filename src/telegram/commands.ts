@@ -4,8 +4,10 @@ import { AccountCommands } from './commands/accountCommands';
 import { BudgetCommands } from './commands/budgetCommands';
 import { PersonCommands } from './commands/personCommands';
 import { UtilityCommands } from './commands/utilityCommands';
+import { ExportCommands } from './commands/exportCommand';
+import { KametiCommands } from './commands/kametiCommands';
 
-export { AccountCommands, BudgetCommands, PersonCommands, UtilityCommands };
+export { AccountCommands, BudgetCommands, PersonCommands, UtilityCommands, ExportCommands, KametiCommands };
 
 /**
  * Unified TelegramCommandHandler Facade.
@@ -69,5 +71,13 @@ export class TelegramCommandHandler {
 
   static async handleQuery(env: Env, db: MongoDBClient, query: string): Promise<string> {
     return UtilityCommands.handleQuery(env, db, query);
+  }
+
+  static async handleExport(db: MongoDBClient, args: string, chatId?: number, botToken?: string): Promise<string> {
+    return ExportCommands.handleExport(db, args, chatId, botToken);
+  }
+
+  static async handleKameti(db: MongoDBClient, args: string): Promise<string> {
+    return KametiCommands.handleKameti(db, args);
   }
 }

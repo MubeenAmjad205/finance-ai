@@ -15,6 +15,19 @@ export class AccountRepository {
     return [...this.mockStore.accounts].sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  async create(account: Account): Promise<void> {
+    if (this.client.isConfigured) {
+      await this.client.execute('insertOne', 'accounts', {
+        document: account
+      });
+      return;
+    }
+    const exists = this.mockStore.accounts.some(a => a.name.toLowerCase() === account.name.toLowerCase());
+    if (!exists) {
+      this.mockStore.accounts.push(account);
+    }
+  }
+
   async setBalance(accountName: string, newBalance: number): Promise<void> {
     if (this.client.isConfigured) {
       await this.client.execute('updateOne', 'accounts', {

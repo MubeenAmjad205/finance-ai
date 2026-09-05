@@ -74,6 +74,18 @@ export class TransactionRepository {
     return this.mockStore.transactions.slice(0, limit);
   }
 
+  async getByMonth(monthIsoPrefix: string): Promise<Transaction[]> {
+    if (this.client.isConfigured) {
+      const res = await this.client.execute<{ documents: Transaction[] }>('find', 'transactions', {
+        filter: { timestamp: { $regex: `^${monthIsoPrefix}` } },
+        sort: { timestamp: -1 }
+      });
+      return res?.documents || [];
+    }
+
+    return this.mockStore.transactions.filter(t => t.timestamp.startsWith(monthIsoPrefix));
+  }
+
   async getMonthlyStats(monthIsoPrefix: string): Promise<{ totalIncome: number; totalExpense: number; categoryBreakdown: Record<string, number> }> {
     if (this.client.isConfigured) {
       const pipeline = [

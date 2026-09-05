@@ -1,4 +1,4 @@
-import { Env, Transaction, Person, Account, BudgetCap, Reminder, SavingsGoal } from './types';
+import { Env, Transaction, Person, Account, BudgetCap, Reminder, SavingsGoal, Kameti } from './types';
 import { MongoDBAtlasClient } from './client';
 import { InMemoryMockStore } from './mockStore';
 import { TransactionRepository } from './repositories/transactionRepo';
@@ -9,6 +9,7 @@ import { ReminderRepository } from './repositories/reminderRepo';
 import { GoalRepository } from './repositories/goalRepo';
 import { GroupExpenseRepository } from './repositories/groupExpenseRepo';
 import { GroupAuditRepository } from './repositories/groupAuditRepo';
+import { KametiRepository } from './repositories/kametiRepo';
 
 /**
  * Unified Database Facade for Cloudflare Workers & MongoDB Atlas Data API.
@@ -25,6 +26,7 @@ export class MongoDBClient {
   public goals: GoalRepository;
   public groupExpenses: GroupExpenseRepository;
   public groupAudits: GroupAuditRepository;
+  public kametis: KametiRepository;
 
   constructor(env: Env) {
     this.client = new MongoDBAtlasClient(env);
@@ -38,6 +40,7 @@ export class MongoDBClient {
     this.goals = new GoalRepository(this.client, this.mockStore);
     this.groupExpenses = new GroupExpenseRepository(this.client, this.mockStore);
     this.groupAudits = new GroupAuditRepository(this.client, this.mockStore);
+    this.kametis = new KametiRepository(this.client, this.mockStore);
   }
 
   // --- Transactions Facade ---
@@ -63,6 +66,10 @@ export class MongoDBClient {
 
   async getMonthlyStats(monthIsoPrefix: string): Promise<{ totalIncome: number; totalExpense: number; categoryBreakdown: Record<string, number> }> {
     return this.transactions.getMonthlyStats(monthIsoPrefix);
+  }
+
+  async getTransactionsByMonth(monthIsoPrefix: string): Promise<Transaction[]> {
+    return this.transactions.getByMonth(monthIsoPrefix);
   }
 
   // --- Persons Facade ---
@@ -158,6 +165,31 @@ export class MongoDBClient {
 
   async getGroupAuditLogsByGroupId(groupId: string | number, limit = 20): Promise<any[]> {
     return this.groupAudits.getByGroupId(groupId, limit);
+  }
+
+  // --- Kameti Facade ---
+  async getAllKametis(): Promise<Kameti[]> {
+    return this.kametis.getAll();
+  }
+
+  async getKametiByName(name: string): Promise<Kameti | null> {
+    return this.kametis.getByName(name);
+  }
+
+  async createKameti(data: Omit<Kameti, '_id' | 'createdAt'>): Promise<Kameti> {
+    return this.kametis.create(data);
+  }
+
+  async markKametiPaid(nameOrId: string, memberName: string, month?: number): Promise<boolean> {
+    return this.kametis.markPaid(nameOrId, memberName, month);
+  }
+
+  async markKametiPayout(nameOrId: string, memberName: string): Promise<boolean> {
+    return this.kametis.markPayoutReceived(nameOrId, memberName);
+  }
+
+  async advanceKametiMonth(nameOrId: string): Promise<number | null> {
+    return this.kametis.advanceMonth(nameOrId);
   }
 }
 

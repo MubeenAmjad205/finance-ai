@@ -17,6 +17,10 @@ export class AIService {
     return IntentClassifier.detect(text);
   }
 
+  static detectLanguage(text: string): 'roman_urdu' | 'english' {
+    return IntentClassifier.detectLanguage(text);
+  }
+
   static async generateFinancialAdvisorTips(
     env: Env,
     stats: { totalIncome: number; totalExpense: number; categoryBreakdown: Record<string, number> },
@@ -33,11 +37,19 @@ export class AIService {
     return VoiceTranscriptionService.transcribe(env, audioBuffer);
   }
 
+  static async transcribeAudio(env: Env, audioBuffer: ArrayBuffer): Promise<string> {
+    return VoiceTranscriptionService.transcribe(env, audioBuffer);
+  }
+
   static async parseTransactionText(env: Env, text: string): Promise<ParsedTransactionResult> {
     return TransactionTextParser.parse(env, text);
   }
 
-  static async parseReceiptImage(env: Env, imageArrayBuffer: ArrayBuffer): Promise<ParsedTransactionResult> {
+  static async parseCompoundExpenses(env: Env, text: string): Promise<ParsedTransactionResult[]> {
+    return TransactionTextParser.parseCompoundExpenses(env, text);
+  }
+
+  static async parseReceiptImage(env: Env, imageArrayBuffer: ArrayBuffer): Promise<ParsedTransactionResult | null> {
     return VisionReceiptService.parseReceipt(env, imageArrayBuffer);
   }
 

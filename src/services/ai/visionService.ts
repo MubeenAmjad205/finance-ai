@@ -1,11 +1,13 @@
 import { Env } from '../../db/types';
-import { ParsedTransactionResult, TransactionTextParser } from './textParser';
+import { ParsedTransactionResult, HIGH_VALUE_THRESHOLD_PKR } from './textParser';
+import { PiiFilter } from '../piiFilter';
 
 export class VisionReceiptService {
   /**
    * Parse receipt image / payment screenshot using Cloudflare Workers AI Vision model
+   * Returns ParsedTransactionResult if successfully extracted with high confidence, or null if unreadable.
    */
-  static async parseReceipt(env: Env, imageArrayBuffer: ArrayBuffer): Promise<ParsedTransactionResult> {
+  static async parseReceipt(env: Env, imageArrayBuffer: ArrayBuffer): Promise<ParsedTransactionResult | null> {
     try {
       if (env.AI && typeof (env.AI as any).run === 'function') {
         const imageVector = Array.from(new Uint8Array(imageArrayBuffer));
@@ -32,31 +34,30 @@ Return JSON ONLY:
         const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
-          return {
-            type: parsed.type || 'expense',
-            amount: Math.abs(Number(parsed.amount) || 500),
-            currency: 'PKR',
-            category: parsed.category || 'General',
-            account: parsed.account || 'JazzCash',
-            personName: parsed.personName && parsed.personName !== 'null' ? parsed.personName : undefined,
-            note: parsed.note || 'Receipt Screenshot',
-            confidence: Number(parsed.confidence) || 0.85
-          };
+          const rawAmount = Number(parsed.amount);
+          
+          if (!isNaN(rawAmount) && rawAmount > 0) {
+            const sanitizedNote = PiiFilter.redact(parsed.note || 'Receipt Screenshot').redactedText;
+            const amount = Math.abs(rawAmount);
+            return {
+              type: parsed.type || 'expense',
+              amount,
+              currency: 'PKR',
+              category: parsed.category || 'General',
+              account: parsed.account || 'JazzCash',
+              personName: parsed.personName && parsed.personName !== 'null' ? parsed.personName : undefined,
+              note: sanitizedNote,
+              confidence: Math.max(0.7, Number(parsed.confidence) || 0.85),
+              isHighValue: amount >= HIGH_VALUE_THRESHOLD_PKR
+            };
+          }
         }
       }
     } catch (err) {
       console.error('[VisionReceiptService Error] parseReceipt failed:', err);
     }
 
-    return {
-      type: 'expense',
-      amount: 1000,
-      currency: 'PKR',
-      category: 'General',
-      account: 'JazzCash',
-      personName: 'Merchant',
-      note: 'Receipt Payment Screenshot',
-      confidence: 0.7
-    };
+    // Never return fake hardcoded amounts when OCR fails!
+    return null;
   }
 }

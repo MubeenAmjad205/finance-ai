@@ -1,5 +1,9 @@
 import { Env, TransactionType } from '../../db/types';
 import { CurrencyService } from './currencyService';
+import { PromptGuard } from './promptGuard';
+import { PiiFilter } from '../piiFilter';
+import { TemporalResolver } from '../temporalResolver';
+import { AccountService } from '../accountService';
 
 export interface ParsedTransactionResult {
   type: TransactionType;
@@ -14,12 +18,20 @@ export interface ParsedTransactionResult {
   note: string;
   tags?: string[];
   confidence: number;
+  isHighValue?: boolean;
 }
+
+export const HIGH_VALUE_THRESHOLD_PKR = 50000;
 
 export class TransactionTextParser {
   static async parse(env: Env, text: string): Promise<ParsedTransactionResult> {
+    const { sanitizedText } = PromptGuard.sanitize(text);
+    const temporal = TemporalResolver.getCurrentContext();
+
     const systemPrompt = `You are an expert financial assistant for Pakistani personal expense tracking.
 Convert unstructured financial messages (English, Urdu, Roman Urdu) into structured JSON.
+
+${temporal.promptContext}
 
 Supported Accounts:
 - "JazzCash", "EasyPaisa", "NayaPay", "SadaPay", "Meezan Bank", "HBL", "UBL", "Bank Alfalah", "Cash", "Default"
@@ -46,7 +58,7 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
   "confidence": 0.95
 }`;
 
-    const userPrompt = `User message: "${text}"\nExtract details into JSON:`;
+    const userPrompt = `User message: "${sanitizedText}"\nExtract details into JSON:`;
 
     try {
       if (env.AI && typeof (env.AI as any).run === 'function') {
@@ -67,14 +79,38 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
 
         const parsed = this.extractJsonObject(rawContent);
         if (parsed) {
-          return this.sanitizeParsedResult(parsed, text);
+          return this.sanitizeParsedResult(parsed, sanitizedText);
         }
       }
     } catch (err) {
       console.error('[TransactionTextParser Error]:', err);
     }
 
-    return this.heuristicParse(text);
+    return this.heuristicParse(sanitizedText);
+  }
+
+  /**
+   * Parse single or compound multi-expense messages
+   * E.g. "Spent 500 on lunch and 300 on rickshaw" -> 2 separate transactions
+   */
+  static async parseCompoundExpenses(env: Env, text: string): Promise<ParsedTransactionResult[]> {
+    const clauses = text.split(/\s+(?:and|aur|\+)\s+|\n+/i).map(c => c.trim()).filter(c => c.length > 0);
+    
+    // Check if multiple clauses each contain an amount
+    const financialClauses = clauses.filter(c => /\d+/.test(c));
+    if (financialClauses.length > 1) {
+      const results: ParsedTransactionResult[] = [];
+      for (const clause of financialClauses) {
+        const hasAccount = /jazzcash|easypaisa|nayapay|sadapay|meezan|hbl|cash/i.test(clause);
+        const effectiveClause = hasAccount ? clause : `${clause} via ${this.detectAccountFromText(text)}`;
+        const parsed = await this.parse(env, effectiveClause);
+        results.push(parsed);
+      }
+      return results;
+    }
+
+    const single = await this.parse(env, text);
+    return [single];
   }
 
   private static extractJsonObject(raw: string): any | null {
@@ -109,6 +145,9 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
       ? parsed.type
       : 'expense';
 
+    const sanitizedNote = PiiFilter.redact(parsed.note || rawText).redactedText;
+    const isHighValue = amountInPkr >= HIGH_VALUE_THRESHOLD_PKR;
+
     return {
       type,
       amount: amountInPkr,
@@ -119,9 +158,10 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
       category: parsed.category || 'General',
       account: parsed.account || this.detectAccountFromText(rawText),
       personName: parsed.personName && parsed.personName !== 'null' ? parsed.personName : undefined,
-      note: parsed.note || rawText,
+      note: sanitizedNote,
       tags: Array.isArray(parsed.tags) ? parsed.tags : undefined,
-      confidence: Number(parsed.confidence) || 0.9
+      confidence: Number(parsed.confidence) || 0.9,
+      isHighValue
     };
   }
 
@@ -153,9 +193,13 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
       personName = personMatch[1];
     }
 
+    const sanitizedNote = PiiFilter.redact(text).redactedText;
+    const finalAmount = amountInPkr || 100;
+    const isHighValue = finalAmount >= HIGH_VALUE_THRESHOLD_PKR;
+
     return {
       type,
-      amount: amountInPkr || 100,
+      amount: finalAmount,
       originalAmount: currency !== 'PKR' ? rawAmount : undefined,
       originalCurrency: currency !== 'PKR' ? currency : undefined,
       exchangeRate: currency !== 'PKR' ? rate : undefined,
@@ -163,22 +207,15 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
       category: lower.includes('food') || lower.includes('lunch') || lower.includes('dinner') ? 'Food & Dining' : 'General',
       account: this.detectAccountFromText(text),
       personName,
-      note: text,
-      confidence: 0.75
+      note: sanitizedNote,
+      confidence: 0.75,
+      isHighValue
     };
   }
 
-  static detectAccountFromText(text: string): string {
-    const lower = text.toLowerCase();
-    if (lower.includes('jazzcash') || lower.includes('jazz cash') || lower.includes('jc')) return 'JazzCash';
-    if (lower.includes('easypaisa') || lower.includes('easy paisa') || lower.includes('ep')) return 'EasyPaisa';
-    if (lower.includes('nayapay') || lower.includes('naya pay')) return 'NayaPay';
-    if (lower.includes('sadapay') || lower.includes('sada pay')) return 'SadaPay';
-    if (lower.includes('meezan')) return 'Meezan Bank';
-    if (lower.includes('hbl')) return 'HBL';
-    if (lower.includes('ubl')) return 'UBL';
-    if (lower.includes('alfalah')) return 'Bank Alfalah';
-    if (lower.includes('cash')) return 'Cash';
-    return 'JazzCash';
+  static detectAccountFromText(text: string, defaultAccount?: string): string {
+    const detected = AccountService.detectAccount(text);
+    if (detected) return detected.name;
+    return defaultAccount || 'Cash';
   }
 }

@@ -25,6 +25,9 @@ export interface Transaction {
   isVoiceNote?: boolean;
   voiceTranscription?: string;
   isRecurring?: boolean;
+  isHighValue?: boolean;
+  splitPayments?: { account: string; amount: number }[];
+  evidenceHash?: string; // HMAC-SHA256 tamper-detection signature
   tags?: string[]; // e.g. ["#TaxDeductible", "#Freelance"]
   createdAt?: string;
 }
@@ -113,7 +116,34 @@ export interface MergeProposal {
   createdAt: string;
 }
 
-export type GroupAuditAction = 'BILL_LOGGED' | 'MARKED_PAID' | 'EXPENSE_UNDONE' | 'SETTLEMENT_RECORDED' | 'BALANCE_OVERRIDDEN' | 'STATEMENT_IMPORTED';
+export type GroupAuditAction = 
+  | 'BILL_LOGGED' 
+  | 'MARKED_PAID' 
+  | 'EXPENSE_UNDONE' 
+  | 'SETTLEMENT_RECORDED' 
+  | 'BALANCE_OVERRIDDEN' 
+  | 'STATEMENT_IMPORTED'
+  | 'MESSAGE_EDITED'
+  | 'MANUAL_DB_TAMPER_DETECTED';
+
+export interface KametiMember {
+  name: string;
+  payoutMonth: number; // Month index 1..totalMonths when this person takes the pot
+  payoutReceived: boolean;
+  paidMonths: number[]; // e.g. [1, 2]
+}
+
+export interface Kameti {
+  _id?: string;
+  name: string; // e.g. "Office Monthly Kameti"
+  monthlyAmount: number; // Contribution amount per member per month
+  totalMonths: number;
+  startDate: string; // ISO date string
+  currentMonth: number; // 1..totalMonths
+  members: KametiMember[];
+  status: 'active' | 'completed';
+  createdAt: string;
+}
 
 export interface GroupAuditLog {
   _id?: string;
@@ -150,6 +180,7 @@ export interface Env {
   TELEGRAM_GROUP_BOT_TOKEN?: string;
   TELEGRAM_SECRET_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string; // For scheduled notifications
+  TELEGRAM_ALLOWED_USER_IDS?: string; // Comma-separated allowed Telegram user/chat IDs
   MONGODB_DATA_API_KEY?: string;
   MONGODB_URI?: string;
   MONGODB_APP_ID?: string;
