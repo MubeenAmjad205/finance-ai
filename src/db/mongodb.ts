@@ -1,6 +1,5 @@
-import { Env, Transaction, Person, Account, BudgetCap, Reminder, SavingsGoal, Kameti } from './types';
+import { Env, Transaction, Person, Account, BudgetCap, Reminder, SavingsGoal, Kameti, WhitelistEntry } from './types';
 import { MongoDBAtlasClient } from './client';
-import { InMemoryMockStore } from './mockStore';
 import { TransactionRepository } from './repositories/transactionRepo';
 import { PersonRepository } from './repositories/personRepo';
 import { AccountRepository } from './repositories/accountRepo';
@@ -10,13 +9,13 @@ import { GoalRepository } from './repositories/goalRepo';
 import { GroupExpenseRepository } from './repositories/groupExpenseRepo';
 import { GroupAuditRepository } from './repositories/groupAuditRepo';
 import { KametiRepository } from './repositories/kametiRepo';
+import { WhitelistRepository } from './repositories/whitelistRepo';
 
 /**
  * Unified Database Facade for Cloudflare Workers & MongoDB Atlas Data API.
  */
 export class MongoDBClient {
   public client: MongoDBAtlasClient;
-  public mockStore: InMemoryMockStore;
 
   public transactions: TransactionRepository;
   public persons: PersonRepository;
@@ -27,20 +26,21 @@ export class MongoDBClient {
   public groupExpenses: GroupExpenseRepository;
   public groupAudits: GroupAuditRepository;
   public kametis: KametiRepository;
+  public whitelist: WhitelistRepository;
 
   constructor(env: Env) {
     this.client = new MongoDBAtlasClient(env);
-    this.mockStore = InMemoryMockStore.getInstance();
 
-    this.transactions = new TransactionRepository(this.client, this.mockStore);
-    this.persons = new PersonRepository(this.client, this.mockStore);
-    this.accounts = new AccountRepository(this.client, this.mockStore);
-    this.budgets = new BudgetRepository(this.client, this.mockStore);
-    this.reminders = new ReminderRepository(this.client, this.mockStore);
-    this.goals = new GoalRepository(this.client, this.mockStore);
-    this.groupExpenses = new GroupExpenseRepository(this.client, this.mockStore);
-    this.groupAudits = new GroupAuditRepository(this.client, this.mockStore);
-    this.kametis = new KametiRepository(this.client, this.mockStore);
+    this.transactions = new TransactionRepository(this.client);
+    this.persons = new PersonRepository(this.client);
+    this.accounts = new AccountRepository(this.client);
+    this.budgets = new BudgetRepository(this.client);
+    this.reminders = new ReminderRepository(this.client);
+    this.goals = new GoalRepository(this.client);
+    this.groupExpenses = new GroupExpenseRepository(this.client);
+    this.groupAudits = new GroupAuditRepository(this.client);
+    this.kametis = new KametiRepository(this.client);
+    this.whitelist = new WhitelistRepository(this.client);
   }
 
   // --- Transactions Facade ---
@@ -93,7 +93,7 @@ export class MongoDBClient {
     return this.persons.addAlias(personId, alias);
   }
 
-  async mergePersons(primaryId: string, targetId: string, aliasToAdd: string): Promise<void> {
+  async mergePersons(primaryId: string, targetId: string, aliasToAdd: string): Promise<Person | null> {
     return this.persons.merge(primaryId, targetId, aliasToAdd);
   }
 
@@ -230,5 +230,9 @@ export class GroupMongoDBClient {
 
   async getGroupAuditLogsByGroupId(groupId: string | number, limit = 20): Promise<any[]> {
     return await this.client.getGroupAuditLogsByGroupId(groupId, limit);
+  }
+
+  get whitelist(): WhitelistRepository {
+    return this.client.whitelist;
   }
 }

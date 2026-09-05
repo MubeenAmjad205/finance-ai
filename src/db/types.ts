@@ -145,6 +145,16 @@ export interface Kameti {
   createdAt: string;
 }
 
+export interface WhitelistEntry {
+  _id?: string;
+  userId: string;
+  username?: string;
+  firstName?: string;
+  addedBy: string;
+  chatType: 'personal' | 'group' | 'manual';
+  createdAt: string;
+}
+
 export interface GroupAuditLog {
   _id?: string;
   groupId: number | string;

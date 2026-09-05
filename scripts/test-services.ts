@@ -9,6 +9,98 @@ import { PiiFilter } from '../src/services/piiFilter';
 import { LoginRateLimiter } from '../src/services/rateLimiter';
 import { VisionReceiptService } from '../src/services/ai/visionService';
 import { TransactionTextParser } from '../src/services/ai/textParser';
+import { WhitelistCommands } from '../src/telegram/commands/whitelistCommands';
+
+function createTestDatabase(customEnv: any = {}) {
+  const store: Record<string, any[]> = {};
+  const db = new MongoDBClient({
+    MONGODB_DATA_API_KEY: 'test_key',
+    MONGODB_APP_ID: 'test_app',
+    MONGODB_DATABASE: 'finance_db',
+    ...customEnv
+  } as any);
+
+  db.client.execute = async (action: string, collection: string, payload: any = {}) => {
+    if (!store[collection]) store[collection] = [];
+    const list = store[collection];
+
+    if (action === 'insertOne') {
+      const id = 'id_' + Math.random().toString(36).substring(2, 9);
+      const doc = { ...payload.document, _id: id };
+      list.push(doc);
+      return { insertedId: id };
+    }
+    if (action === 'find') {
+      let filtered = [...list];
+      if (payload.filter) {
+        for (const [k, v] of Object.entries(payload.filter)) {
+          if (typeof v === 'object' && v !== null && '$regex' in v) {
+            const rx = new RegExp((v as any).$regex, (v as any).$options || '');
+            filtered = filtered.filter(item => rx.test(item[k] || ''));
+          } else if (typeof v === 'object' && v !== null && '$oid' in v) {
+            filtered = filtered.filter(item => item._id === (v as any).$oid);
+          } else {
+            filtered = filtered.filter(item => String(item[k]) === String(v));
+          }
+        }
+      }
+      if (payload.limit) filtered = filtered.slice(0, payload.limit);
+      return { documents: filtered };
+    }
+    if (action === 'findOne') {
+      let filtered = [...list];
+      if (payload.filter) {
+        for (const [k, v] of Object.entries(payload.filter)) {
+          if (typeof v === 'object' && v !== null && '$regex' in v) {
+            const rx = new RegExp((v as any).$regex, (v as any).$options || '');
+            filtered = filtered.filter(item => rx.test(item[k] || ''));
+          } else if (typeof v === 'object' && v !== null && '$oid' in v) {
+            filtered = filtered.filter(item => item._id === (v as any).$oid);
+          } else {
+            filtered = filtered.filter(item => String(item[k]) === String(v));
+          }
+        }
+      }
+      return { document: filtered[0] || null };
+    }
+    if (action === 'updateOne') {
+      let doc = null;
+      if (payload.filter?._id?.$oid) {
+        doc = list.find(item => item._id === payload.filter._id.$oid);
+      } else if (payload.filter?._id) {
+        doc = list.find(item => item._id === payload.filter._id);
+      } else if (payload.filter?.userId) {
+        doc = list.find(item => String(item.userId) === String(payload.filter.userId));
+      } else if (payload.filter?.name) {
+        doc = list.find(item => item.name?.toLowerCase() === payload.filter.name.toLowerCase());
+      } else if (payload.filter?.name?.$regex) {
+        const rx = new RegExp(payload.filter.name.$regex, payload.filter.name.$options || '');
+        doc = list.find(item => rx.test(item.name || ''));
+      }
+      if (doc) {
+        if (payload.update?.$set) Object.assign(doc, payload.update.$set);
+        return { matchedCount: 1, modifiedCount: 1 };
+      } else if (payload.upsert) {
+        const id = 'id_' + Math.random().toString(36).substring(2, 9);
+        const newDoc = { _id: id, ...(payload.filter || {}), ...(payload.update?.$set || {}) };
+        list.push(newDoc);
+        return { matchedCount: 0, upsertedId: id };
+      }
+      return { matchedCount: 0, modifiedCount: 0 };
+    }
+    if (action === 'deleteOne') {
+      const idx = list.findIndex(item => String(item.userId) === String(payload.filter?.userId) || item._id === payload.filter?._id);
+      if (idx >= 0) {
+        list.splice(idx, 1);
+        return { deletedCount: 1 };
+      }
+      return { deletedCount: 0 };
+    }
+    return null;
+  };
+
+  return db;
+}
 
 async function runTests() {
   console.log('🧪 Starting Service Logic Unit Tests...\n');
@@ -232,10 +324,10 @@ async function runTests() {
 
   // 20. Test Kameti (Committee) Management
   console.log('\n2️⃣0️⃣ Testing Kameti (Rotating Savings & Credit Association):');
-  const db = new MongoDBClient({} as any);
+  const db = createTestDatabase();
 
   const kametis = await db.getAllKametis();
-  assert(kametis.length >= 1, 'Initial mock kameti is accessible');
+  assert(kametis.length === 0, 'Starts with zero dummy kametis (clean slate)');
 
   const newKameti = await db.createKameti({
     name: 'DevTeam Committee',
@@ -269,9 +361,24 @@ async function runTests() {
   // 21. Test Export Commands (CSV Generation)
   console.log('\n2️⃣1️⃣ Testing Export Commands (CSV Statement):');
   const { ExportCommands } = await import('../src/telegram/commands/exportCommand');
+  const emptyExport = await ExportCommands.handleExport(db, '2026-09');
+  assert(emptyExport.includes('No transactions found'), 'Gracefully handles empty month with zero dummy data');
+
+  await db.createTransaction({
+    type: 'expense',
+    amount: 1500,
+    currency: 'PKR',
+    category: 'Food & Dining',
+    account: 'Meezan Bank',
+    note: 'Lunch meeting',
+    rawText: 'Lunch 1500',
+    status: 'confirmed',
+    timestamp: '2026-09-02T12:00:00.000Z'
+  });
+
   const exportPreview = await ExportCommands.handleExport(db, '2026-09');
   assert(exportPreview.includes('Financial Export for 2026-09') || exportPreview.includes('Statement CSV Exported'), 'Generates valid export header');
-  assert(exportPreview.includes('Total Records:'), 'Contains total transaction record count');
+  assert(exportPreview.includes('Total Records:** 1'), 'Contains total transaction record count');
 
   // 22. Test Dynamic Account Discovery (AccountService)
   console.log('\n2️⃣2️⃣ Testing Dynamic Bank & Wallet Discovery (No Hardcoding):');
@@ -315,6 +422,35 @@ async function runTests() {
   console.log('\n2️⃣4️⃣ Testing Zero Dummy Data Fallbacks:');
   const emptyBills = RecurringBillService.getUpcomingBillsDue(new Date(), []);
   assert(emptyBills.length === 0, 'Does NOT invent fake bills when user has none configured');
+
+  // 25. Test Dynamic In-Chat Whitelist Management
+  console.log('\n2️⃣5️⃣ Testing Dynamic In-Chat Whitelist Management:');
+  const mockEnv = { TELEGRAM_ALLOWED_USER_IDS: '111222333', TELEGRAM_CHAT_ID: '111222333' } as any;
+  const dbClient = createTestDatabase(mockEnv);
+
+  // Initial check: outsider user 999888777 is rejected
+  const initialAuth = await TelegramAuthGuard.isAuthorizedAsync(mockEnv, dbClient, 999888777, 999888777);
+  assert(!initialAuth.isAuthorized, 'Outsider user is initially rejected by AuthGuard');
+
+  // Admin authorizes user via in-chat command
+  const addRes = await WhitelistCommands.handlePersonalWhitelist(dbClient, mockEnv, 'add 999888777 Ali Khan', '111222333');
+  assert(addRes.includes('Authorized'), 'Admin command successfully adds user to whitelist');
+
+  // Now user 999888777 should be authorized dynamically
+  const updatedAuth = await TelegramAuthGuard.isAuthorizedAsync(mockEnv, dbClient, 999888777, 999888777);
+  assert(updatedAuth.isAuthorized, 'Newly added user is now dynamically authorized via MongoDB');
+
+  // Whitelist list output contains user
+  const listRes = await WhitelistCommands.handlePersonalWhitelist(dbClient, mockEnv, 'list', '111222333');
+  assert(listRes.includes('999888777'), 'Whitelist list command shows dynamically authorized user');
+
+  // Admin revokes access
+  const removeRes = await WhitelistCommands.handlePersonalWhitelist(dbClient, mockEnv, 'remove 999888777', '111222333');
+  assert(removeRes.includes('Revoked'), 'Admin command successfully revokes user access');
+
+  // User should now be rejected again
+  const revokedAuth = await TelegramAuthGuard.isAuthorizedAsync(mockEnv, dbClient, 999888777, 999888777);
+  assert(!revokedAuth.isAuthorized, 'Revoked user is immediately rejected again');
 
   console.log(`\n================================`);
   console.log(`Results: ${passed} Passed, ${failed} Failed`);

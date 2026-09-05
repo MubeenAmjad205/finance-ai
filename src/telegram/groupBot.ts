@@ -10,6 +10,7 @@ import { GroupPresenter } from './group/groupPresenter';
 import { GroupCommands } from './group/groupCommands';
 import { GroupCallbacks } from './group/groupCallbacks';
 import { GroupAuditHandler } from './group/groupAuditHandler';
+import { WhitelistCommands } from './commands/whitelistCommands';
 
 const inMemoryGroupExpenses: Record<string, GroupExpense[]> = {};
 
@@ -94,7 +95,7 @@ export class TelegramGroupBotHandler {
 
     // 1. Group Slash Commands
     if (text.startsWith('/')) {
-      await this.dispatchSlashCommand(chatId, text, senderName, sender);
+      await this.dispatchSlashCommand(chatId, text, senderName, sender, msg);
       return;
     }
 
@@ -141,13 +142,18 @@ export class TelegramGroupBotHandler {
     }
   }
 
-  private async dispatchSlashCommand(chatId: number, text: string, senderName: string, sender: any): Promise<void> {
+  private async dispatchSlashCommand(chatId: number, text: string, senderName: string, sender: any, msg?: any): Promise<void> {
     const parts = text.trim().split(/\s+/);
     const command = parts[0].toLowerCase().split('@')[0];
     const args = parts.slice(1).join(' ');
     const expenses = await this.getGroupExpenses(chatId);
 
     switch (command) {
+      case '/whitelist':
+      case '/allow':
+      case '/auth':
+        await WhitelistCommands.handleGroupWhitelist(this.botToken, this.env, this.db, chatId, msg, args, sender);
+        break;
       case '/groupledger':
       case '/ledger':
       case '/groupbalance':

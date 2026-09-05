@@ -14,6 +14,7 @@ import { TelegramApiClient } from './client/telegramApi';
 import { TxPresenter } from './handlers/txPresenter';
 import { VoiceHandler } from './handlers/voiceHandler';
 import { PhotoHandler } from './handlers/photoHandler';
+import { WhitelistCommands } from './commands/whitelistCommands';
 
 export class TelegramBotHandler {
   private env: Env;
@@ -33,7 +34,7 @@ export class TelegramBotHandler {
       answerCallback: (cbId, text) => TelegramApiClient.answerCallback(this.botToken, cbId, text).then(() => {}),
       presentTransactionConfirmation: (cId, p, r, m, v, t) =>
         TxPresenter.presentTransactionConfirmation(this.botToken, this.db, cId, p, r, m, v, t)
-    });
+    }, this.env);
   }
 
   async handleWebhook(request: Request): Promise<Response> {
@@ -79,9 +80,22 @@ export class TelegramBotHandler {
 
     // 0. Whitelist / User Authorization Check
     const fromId = msg.from?.id;
-    const authCheck = TelegramAuthGuard.isAuthorized(this.env, fromId, chatId);
+    const authCheck = await TelegramAuthGuard.isAuthorizedAsync(this.env, this.db, fromId, chatId);
     if (!authCheck.isAuthorized) {
-      await TelegramApiClient.sendMessage(this.botToken, chatId, authCheck.reason || '🔒 Access Denied: Private Bot', { parse_mode: 'Markdown' });
+      const keyboard = {
+        inline_keyboard: [
+          [{ text: '📩 Request Access from Owner', callback_data: `auth_req:${fromId}` }]
+        ]
+      };
+      await TelegramApiClient.sendMessage(
+        this.botToken,
+        chatId,
+        `🔒 *Access Restricted*\n\n` +
+        `This personal finance assistant is configured for private use.\n` +
+        `Your Telegram User ID: \`${fromId}\`\n\n` +
+        `If you know the owner, you can request access below:`,
+        { reply_markup: keyboard, parse_mode: 'Markdown' }
+      );
       return;
     }
 
@@ -90,7 +104,7 @@ export class TelegramBotHandler {
 
     // 1. Handle Slash Commands
     if (text.startsWith('/')) {
-      await this.dispatchSlashCommand(chatId, text);
+      await this.dispatchSlashCommand(chatId, text, fromId, msg.from?.first_name);
       return;
     }
 
@@ -124,7 +138,7 @@ export class TelegramBotHandler {
     }
   }
 
-  private async dispatchSlashCommand(chatId: number, text: string): Promise<void> {
+  private async dispatchSlashCommand(chatId: number, text: string, fromId?: number | string, senderName?: string): Promise<void> {
     const parts = text.trim().split(/\s+/);
     const command = parts[0].toLowerCase().split('@')[0];
     const args = parts.slice(1).join(' ');
@@ -177,6 +191,8 @@ export class TelegramBotHandler {
       responseText = await TelegramCommandHandler.handleKameti(this.db, args);
     } else if (command === '/query') {
       responseText = await TelegramCommandHandler.handleQuery(this.env, this.db, args);
+    } else if (command === '/whitelist') {
+      responseText = await WhitelistCommands.handlePersonalWhitelist(this.db, this.env, args, fromId || chatId, senderName);
     } else {
       responseText = `Unknown command. Type /help to see all available commands.`;
     }

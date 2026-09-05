@@ -1,8 +1,10 @@
+import { Env } from '../db/types';
 import { MongoDBClient } from '../db/mongodb';
 import { ParsedTransactionResult } from '../services/ai';
 import { AccountCallbacks } from './callbacks/accountCallbacks';
 import { CategoryCallbacks } from './callbacks/categoryCallbacks';
 import { TransactionCallbacks } from './callbacks/transactionCallbacks';
+import { WhitelistCallbacks } from './callbacks/whitelistCallbacks';
 
 export interface TelegramApiContext {
   botToken: string;
@@ -20,7 +22,7 @@ export interface TelegramApiContext {
 }
 
 export class CallbackQueryHandler {
-  constructor(private db: MongoDBClient, private api: TelegramApiContext) {}
+  constructor(private db: MongoDBClient, private api: TelegramApiContext, private env?: Env) {}
 
   async handle(cb: any): Promise<void> {
     const callbackId = cb.id;
@@ -91,6 +93,23 @@ export class CallbackQueryHandler {
       // 7. Cancel Transaction
       case 'tx_cancel':
         await TransactionCallbacks.handleCancel(this.db, this.api, chatId, messageId, callbackId, txId);
+        break;
+
+      // 8. Whitelist Authorization Callbacks
+      case 'auth_req':
+        if (this.env) {
+          await WhitelistCallbacks.handleAuthRequest(this.api.botToken, this.env, callbackId, chatId, messageId, data, cb.from);
+        }
+        break;
+
+      case 'auth_appr':
+        if (this.env) {
+          await WhitelistCallbacks.handleAuthApprove(this.api.botToken, this.env, this.db, callbackId, chatId, messageId, data, cb.from);
+        }
+        break;
+
+      case 'auth_deny':
+        await WhitelistCallbacks.handleAuthDeny(this.api.botToken, callbackId, chatId, messageId, data, cb.from);
         break;
 
       default:
