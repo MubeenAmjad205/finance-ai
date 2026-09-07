@@ -248,8 +248,9 @@ export class TelegramBotHandler {
     }
 
     // Check if the user is naturally setting or updating an account balance (e.g. from voice note or text)
-    // Examples: "Set UBL account balance 1000", "Set balance UBL 1000", "Update EasyPaisa balance to 500"
+    // Examples: "Add may new UBL account with initial balance of 1000", "Set UBL account balance 1000", "Update EasyPaisa balance to 500"
     const isSetBalancePattern = !isSpending && (
+      /(?:add|set|update|change|initialize|open|create)\s+(?:my\s+|may\s+)?(?:new\s+)?(?:account\s+)?([a-zA-Z\s]+?)\s*(?:account)?\s*(?:with\s+)?(?:initial\s+|starting\s+)?balance\s*(?:of|to|as|is|:)?\s*(\d+(?:,\d+)*(?:\.\d+)?)/i.test(effectiveText) ||
       /(?:set|update|change|initialize)\s+(?:my\s+)?(?:account\s+)?(?:balance|starting\s+balance)?/i.test(effectiveText) ||
       /(?:balance|balance\s+is|balance\s+to)\s*(?:is|to|:)?\s*\d+/i.test(effectiveText)
     );
@@ -312,12 +313,22 @@ export class TelegramBotHandler {
     if (compoundItems.length > 1) {
       for (const item of compoundItems) {
         const parsedItem = await AIService.parseTransactionText(this.env, `${item.note} ${item.amount}`);
+        if (parsedItem.type === 'set_balance') {
+          const responseText = await TelegramCommandHandler.handleSetBalance(this.db, `${parsedItem.account} ${parsedItem.amount}`);
+          await TelegramApiClient.sendMessage(this.botToken, chatId, responseText, { parse_mode: 'Markdown' });
+          return;
+        }
         await TxPresenter.presentTransactionConfirmation(this.botToken, this.db, chatId, parsedItem, `${item.note} ${item.amount}`, messageId);
       }
       return;
     }
 
     const parsedResult = await AIService.parseTransactionText(this.env, effectiveText);
+    if (parsedResult.type === 'set_balance') {
+      const responseText = await TelegramCommandHandler.handleSetBalance(this.db, `${parsedResult.account} ${parsedResult.amount}`);
+      await TelegramApiClient.sendMessage(this.botToken, chatId, responseText, { parse_mode: 'Markdown' });
+      return;
+    }
     const budgetWarning = await BudgetAlertService.checkSingleTransactionPacing(this.db, parsedResult.category, parsedResult.amount);
     if (budgetWarning) {
       await TelegramApiClient.sendMessage(this.botToken, chatId, budgetWarning, { parse_mode: 'Markdown' });

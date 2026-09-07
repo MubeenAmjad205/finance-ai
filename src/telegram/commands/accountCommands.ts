@@ -59,7 +59,7 @@ export class AccountCommands {
     const success = await db.setAccountBalance(canonicalName, newBalance);
     if (!success) {
       const errDetail = db.client.lastError || 'Unknown database write error';
-      return `❌ **Database Error: Failed to Update Balance**\n──────────────────────\nCould not save balance for **${canonicalName}** to MongoDB Atlas.\n\n⚠️ **Error:** \`${errDetail}\`\n\n💡 *Hint:* Please verify that \`MONGODB_APP_ID\` and \`MONGODB_DATA_API_KEY\` are correctly set in Cloudflare Worker secrets.`;
+      return `❌ **Database Error: Failed to Update Balance**\n──────────────────────\nCould not save balance for **${canonicalName}** to database.\n\n⚠️ **Error:** \`${errDetail}\`\n\n💡 *Hint:* Please verify that \`DATABASE_URL\` is correctly configured.`;
     }
 
     return `✅ **Account Balance Updated!**\n──────────────────────\n🏦 **Account:** ${canonicalName}\n💰 **New Balance:** ${this.formatCurrency(newBalance)}`;
