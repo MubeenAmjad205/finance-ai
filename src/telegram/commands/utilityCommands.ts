@@ -1,6 +1,7 @@
 import { Env } from '../../db/types';
 import { MongoDBClient } from '../../db/mongodb';
 import { AIService } from '../../services/ai';
+import { getUserCurrentMonth, DEFAULT_USER_TIMEZONE } from '../../utils/timezone';
 
 export class UtilityCommands {
   static async handleStart(env: Env): Promise<string> {
@@ -35,7 +36,7 @@ I am your personal budget assistant running natively on **Cloudflare Workers AI*
   }
 
   static async handleSummary(env: Env, db: MongoDBClient): Promise<string> {
-    const currentMonth = new Date().toISOString().substring(0, 7);
+    const currentMonth = getUserCurrentMonth(env.USER_TIMEZONE || DEFAULT_USER_TIMEZONE);
     const stats = await db.getMonthlyStats(currentMonth);
     const accounts = await db.getAllAccounts();
 
@@ -92,7 +93,7 @@ I am your personal budget assistant running natively on **Cloudflare Workers AI*
   }
 
   static async handleAdvisor(env: Env, db: MongoDBClient): Promise<string> {
-    const currentMonth = new Date().toISOString().substring(0, 7);
+    const currentMonth = getUserCurrentMonth(env.USER_TIMEZONE || DEFAULT_USER_TIMEZONE);
     const stats = await db.getMonthlyStats(currentMonth);
     const accounts = await db.getAllAccounts();
 
@@ -111,7 +112,7 @@ I am your personal budget assistant running natively on **Cloudflare Workers AI*
   }
 
   static async handleReport(env: Env, db: MongoDBClient): Promise<string> {
-    const currentMonth = new Date().toISOString().substring(0, 7);
+    const currentMonth = getUserCurrentMonth(env.USER_TIMEZONE || DEFAULT_USER_TIMEZONE);
     const stats = await db.getMonthlyStats(currentMonth);
     const accounts = await db.getAllAccounts();
     const persons = await db.getAllPersons();
@@ -156,7 +157,7 @@ I am your personal budget assistant running natively on **Cloudflare Workers AI*
       return `Please provide a question. Example: \`/query How much did I spend on food this month?\``;
     }
 
-    const currentMonth = new Date().toISOString().substring(0, 7);
+    const currentMonth = getUserCurrentMonth(env.USER_TIMEZONE || DEFAULT_USER_TIMEZONE);
     const stats = await db.getMonthlyStats(currentMonth);
     const accounts = await db.getAllAccounts();
     const persons = await db.getAllPersons();

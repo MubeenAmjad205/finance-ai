@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { Env } from '../db/types';
 import { MongoDBClient } from '../db/mongodb';
+import { getUserCurrentMonth, DEFAULT_USER_TIMEZONE } from '../utils/timezone';
 
 export const apiRoutes = new Hono<{ Bindings: Env }>();
 
@@ -17,7 +18,7 @@ apiRoutes.get('/health', (c) => {
 // 2. Monthly Stats
 apiRoutes.get('/stats', async (c) => {
   const db = new MongoDBClient(c.env);
-  const currentMonth = new Date().toISOString().substring(0, 7);
+  const currentMonth = getUserCurrentMonth(c.env.USER_TIMEZONE || DEFAULT_USER_TIMEZONE);
   const stats = await db.getMonthlyStats(currentMonth);
   return c.json(stats);
 });

@@ -39,8 +39,12 @@ Supported Accounts:
 Supported Currencies:
 - "PKR", "USD", "EUR", "GBP", "AED", "SAR"
 
-Supported Transaction Types:
-- "expense", "income", "transfer", "debt_given", "debt_received"
+CRITICAL TRANSACTION TYPE RULES:
+- "income": Money coming IN to the user (e.g. "receive", "received", "credited", "got", "salary", "deposit", "deposited", "earned", "client paid", "refund", "cashback", "mila", "aaya"). Example: "Today I receive 1000 in my UBL bank account" -> type MUST be "income"!
+- "expense": Money going OUT or spent (e.g. "spent", "paid", "bought", "kharcha", "diye", "bill", "purchased", "recharge").
+- "transfer": Moving money between user's own accounts (e.g. "transferred 5000 from Meezan to JazzCash").
+- "debt_given": Lending money to someone else (e.g. "gave 2000 loan to Ali").
+- "debt_received": Receiving borrowed money back from someone (e.g. "Ali returned 2000").
 
 Categories:
 - "Food & Dining", "Groceries", "Bills & Utilities", "Rent", "Transportation", "Shopping", "Entertainment", "Health & Medical", "Salary", "Freelance", "Debt / Transfer", "General"
@@ -51,7 +55,7 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
   "amount": number,
   "currency": "PKR" | "USD" | "EUR" | "GBP" | "AED" | "SAR",
   "category": "string",
-  "account": "JazzCash" | "EasyPaisa" | "NayaPay" | "SadaPay" | "Meezan Bank" | "HBL" | "Cash" | string,
+  "account": "JazzCash" | "EasyPaisa" | "NayaPay" | "SadaPay" | "Meezan Bank" | "HBL" | "UBL" | "Cash" | string,
   "personName": "string or null",
   "note": "brief summary",
   "tags": ["#Tag1"],
@@ -62,7 +66,7 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
 
     try {
       if (env.AI && typeof (env.AI as any).run === 'function') {
-        const response: any = await (env.AI as any).run('@cf/meta/llama-3.1-8b-instruct', {
+        const response: any = await (env.AI as any).run('@cf/meta/llama-3.2-3b-instruct', {
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
@@ -138,12 +142,23 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
   private static sanitizeParsedResult(parsed: any, rawText: string): ParsedTransactionResult {
     const rawAmount = Math.abs(Number(parsed.amount) || 0);
     const origCurrency = (parsed.currency || 'PKR').toUpperCase();
+    const lowerRaw = rawText.toLowerCase();
 
     const { amountInPkr, rate } = CurrencyService.convertToPkr(rawAmount, origCurrency);
 
-    const type: TransactionType = ['income', 'expense', 'transfer', 'debt_given', 'debt_received'].includes(parsed.type)
+    let type: TransactionType = ['income', 'expense', 'transfer', 'debt_given', 'debt_received'].includes(parsed.type)
       ? parsed.type
       : 'expense';
+
+    // Heuristic correction: If user clearly stated receiving funds (income), override false expense classification
+    const isIncomeExplicit = /\b(receive|received|recieved|receives|receiving|credited|deposit|deposited|salary|freelance|earned|earning|inflow|cashback|refund|reversal|mila|milay|aaye|aaya|kamai)\b/i.test(lowerRaw);
+    const isSpendingExplicit = /\b(spent|paid|buy|bought|purchase|cost|kharcha|diye|bill|fee|petrol|dinner|lunch|food)\b/i.test(lowerRaw);
+
+    if (isIncomeExplicit && !isSpendingExplicit) {
+      type = 'income';
+    } else if (isSpendingExplicit && !isIncomeExplicit) {
+      type = 'expense';
+    }
 
     const sanitizedNote = PiiFilter.redact(parsed.note || rawText).redactedText;
     const isHighValue = amountInPkr >= HIGH_VALUE_THRESHOLD_PKR;
@@ -155,7 +170,7 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
       originalCurrency: origCurrency !== 'PKR' ? origCurrency : undefined,
       exchangeRate: origCurrency !== 'PKR' ? rate : undefined,
       currency: 'PKR',
-      category: parsed.category || 'General',
+      category: parsed.category || (type === 'income' ? 'Salary' : 'General'),
       account: parsed.account || this.detectAccountFromText(rawText),
       personName: parsed.personName && parsed.personName !== 'null' ? parsed.personName : undefined,
       note: sanitizedNote,
@@ -187,9 +202,12 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
 
     // Detect type
     let type: TransactionType = 'expense';
-    if (lower.includes('recieved') || lower.includes('received') || lower.includes('got') || lower.includes('milay')) {
+    const isIncomeExplicit = /\b(receive|received|recieved|receives|receiving|credited|deposit|deposited|salary|freelance|earned|earning|inflow|cashback|refund|reversal|mila|milay|aaye|aaya|kamai|got)\b/i.test(lower);
+    const isTransferExplicit = /\b(sent|transferred|transfer|bheja|bheje)\b/i.test(lower);
+
+    if (isIncomeExplicit) {
       type = 'income';
-    } else if (lower.includes('sent') || lower.includes('transferred') || lower.includes('bheja') || lower.includes('transfer')) {
+    } else if (isTransferExplicit) {
       type = 'transfer';
     }
 

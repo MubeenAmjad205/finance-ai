@@ -77,8 +77,8 @@ Return STRICT JSON ONLY:
 }`;
 
     try {
-      if (env.AI && typeof env.AI.run === 'function') {
-        const response: any = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      if (env.AI && typeof (env.AI as any).run === 'function') {
+        const response: any = await (env.AI as any).run('@cf/meta/llama-3.2-3b-instruct', {
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1,
           max_tokens: 300

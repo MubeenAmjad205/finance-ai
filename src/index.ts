@@ -8,6 +8,7 @@ import { ScheduledTaskHandler } from './services/scheduler';
 import { renderDashboardHtml } from './ui/dashboard';
 import { LoginRateLimiter } from './services/rateLimiter';
 import { apiRoutes } from './routes/apiRoutes';
+import { getUserCurrentMonth, DEFAULT_USER_TIMEZONE } from './utils/timezone';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -110,7 +111,8 @@ app.get('/', async (c) => {
   }
 
   const db = new MongoDBClient(c.env);
-  const currentMonth = new Date().toISOString().substring(0, 7);
+  const userTz = c.env.USER_TIMEZONE || DEFAULT_USER_TIMEZONE;
+  const currentMonth = getUserCurrentMonth(userTz);
   const [stats, accounts, persons, recentTransactions] = await Promise.all([
     db.getMonthlyStats(currentMonth),
     db.getAllAccounts(),
@@ -118,7 +120,7 @@ app.get('/', async (c) => {
     db.getRecentTransactions(20)
   ]);
 
-  const monthName = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const monthName = new Intl.DateTimeFormat('en-US', { timeZone: userTz, month: 'long', year: 'numeric' }).format(new Date());
   const html = renderDashboardHtml(monthName, stats, accounts, persons, recentTransactions);
   return c.html(html);
 });

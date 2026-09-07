@@ -52,24 +52,40 @@ export class IntentClassifier {
       return 'question';
     }
 
-    // 3. Transactions: Check for explicit financial verbs, payment channels or monetary markers
-    const hasNumbers = /\d+/.test(lower);
-    const hasFinancialKeywords =
+    // 3. Transactions: Financial verbs, actions, accounts or monetary markers
+    // NLP / LLM parses natural statements like "I receive a thousand rupees in UBL"
+    const hasNumbers = /\d+/.test(lower) || /\b(thousand|hundred|lakh|lac|crore|million|k|hazar|sau)\b/i.test(lower);
+    const hasFinancialVerbs =
       lower.includes('spent') ||
       lower.includes('paid') ||
+      lower.includes('receive') ||
       lower.includes('received') ||
+      lower.includes('recieved') ||
+      lower.includes('got') ||
       lower.includes('sent') ||
       lower.includes('transfer') ||
       lower.includes('bheja') ||
       lower.includes('bheje') ||
       lower.includes('milay') ||
       lower.includes('mile') ||
+      lower.includes('mila') ||
       lower.includes('kharch') ||
       lower.includes('kharcha') ||
       lower.includes('diye') ||
       lower.includes('diya') ||
       lower.includes('liya') ||
       lower.includes('mangwaya') ||
+      lower.includes('bought') ||
+      lower.includes('khareeda') ||
+      lower.includes('deposit') ||
+      lower.includes('credited') ||
+      lower.includes('salary') ||
+      lower.includes('income') ||
+      lower.includes('expense') ||
+      lower.includes('log') ||
+      lower.includes('record');
+
+    const hasFinancialEntities =
       lower.includes('easypaisa') ||
       lower.includes('jazzcash') ||
       lower.includes('nayapay') ||
@@ -83,24 +99,18 @@ export class IntentClassifier {
       lower.includes('rupees') ||
       lower.includes('$') ||
       lower.includes('usd') ||
-      lower.includes('bought') ||
-      lower.includes('khareeda') ||
       lower.includes('kameti') ||
       lower.includes('committee') ||
       lower.includes('udhaar') ||
       lower.includes('qarz') ||
-      lower.includes('tankhwah') ||
-      lower.includes('salary') ||
       lower.includes('petrol') ||
       lower.includes('rickshaw') ||
       lower.includes('bykea') ||
       lower.includes('careem') ||
       lower.includes('indrive') ||
-      lower.includes('doodh') ||
-      lower.includes('sabzi') ||
       lower.includes('bill');
 
-    if (hasNumbers && hasFinancialKeywords) {
+    if ((hasNumbers && (hasFinancialVerbs || hasFinancialEntities)) || (hasFinancialVerbs && hasFinancialEntities)) {
       return 'transaction';
     }
 

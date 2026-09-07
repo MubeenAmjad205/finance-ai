@@ -346,7 +346,7 @@ export class TelegramGroupBotHandler {
 
   private async handleGroupVoice(chatId: number, msg: any, senderName: string, sender: any): Promise<void> {
     const voiceObj = msg.voice || msg.audio;
-    await TelegramApiClient.sendMessage(this.botToken, chatId, `🎙️ Transcribing voice note with Cloudflare Workers AI Whisper...`);
+    await TelegramApiClient.sendMessage(this.botToken, chatId, `🎙️ Transcribing voice note in English...`);
     const audioBuffer = await TelegramApiClient.downloadFile(this.botToken, voiceObj.file_id);
     if (!audioBuffer) {
       await TelegramApiClient.sendMessage(this.botToken, chatId, `❌ Failed to download voice message.`);

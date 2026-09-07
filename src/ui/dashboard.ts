@@ -2,6 +2,7 @@ import { Transaction, Person, Account } from '../db/types';
 import { escapeHtml } from './sanitize';
 import { dashboardCss } from './templates/dashboardCss';
 import { AccountService } from '../services/accountService';
+import { formatUserDateTime, DEFAULT_USER_TIMEZONE } from '../utils/timezone';
 
 function formatPkr(num: number): string {
   return new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(num);
@@ -169,7 +170,7 @@ export function renderDashboardHtml(
                 <td style="font-weight: 600; color: ${tx.type === 'income' ? 'var(--accent-green)' : 'var(--text-main)'};">
                   ${tx.type === 'income' ? '+' : '-'}${formatPkr(tx.amount)}
                 </td>
-                <td style="color: var(--text-muted);">${new Date(tx.timestamp).toLocaleDateString()}</td>
+                <td style="color: var(--text-muted);">${formatUserDateTime(tx.timestamp, DEFAULT_USER_TIMEZONE)}</td>
               </tr>
             `).join('')}
           </tbody>

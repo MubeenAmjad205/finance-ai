@@ -1,0 +1,132 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+model Account {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  balance   Float     @default(0)
+  currency  String    @default("PKR")
+  type      String    @default("mobile_wallet")
+  updatedAt DateTime? @updatedAt
+
+  @@map("accounts")
+}
+
+model Transaction {
+  id         String   @id @default(uuid())
+  type       String
+  amount     Float
+  currency   String   @default("PKR")
+  category   String
+  account    String
+  personId   String?
+  personName String?
+  note       String?
+  rawText    String?
+  status     String   @default("confirmed")
+  timestamp  String
+  createdAt  String?
+
+  @@map("transactions")
+}
+
+model Person {
+  id         String   @id @default(uuid())
+  name       String   @unique
+  aliases    String[]
+  accounts   String[]
+  netBalance Float    @default(0)
+  notes      String?
+  createdAt  String?
+  updatedAt  String?
+
+  @@map("persons")
+}
+
+model BudgetCap {
+  id                String  @id @default(uuid())
+  category          String  @unique
+  monthlyLimit      Float
+  alertThresholdPct Float   @default(80)
+  updatedAt         String?
+
+  @@map("budgets")
+}
+
+model SavingsGoal {
+  id            String  @id @default(uuid())
+  title         String  @unique
+  targetAmount  Float
+  currentAmount Float   @default(0)
+  updatedAt     String?
+  createdAt     String?
+
+  @@map("goals")
+}
+
+model Reminder {
+  id          String  @id @default(uuid())
+  text        String
+  chatId      String?
+  dueAt       String?
+  isTriggered Boolean @default(false)
+  createdAt   String?
+
+  @@map("reminders")
+}
+
+model GroupExpense {
+  id        String  @id @default(uuid())
+  groupId   String?
+  payer     String
+  amount    Float
+  note      String?
+  splits    Json?
+  createdAt String?
+
+  @@map("group_expenses")
+}
+
+model GroupAudit {
+  id        String  @id @default(uuid())
+  groupId   String?
+  action    String
+  data      Json?
+  timestamp String?
+
+  @@map("group_audit_logs")
+}
+
+model Kameti {
+  id            String  @id @default(uuid())
+  name          String  @unique
+  monthlyAmount Float
+  totalMonths   Int
+  currentMonth  Int     @default(1)
+  startDate     String?
+  status        String  @default("active")
+  members       Json?
+  createdAt     String?
+
+  @@map("kametis")
+}
+
+model WhitelistEntry {
+  id        String  @id @default(uuid())
+  userId    String  @unique
+  username  String?
+  firstName String?
+  role      String  @default("member")
+  addedBy   String?
+  chatType  String  @default("personal")
+  createdAt String?
+
+  @@map("whitelist")
+}
