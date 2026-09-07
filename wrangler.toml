@@ -1,6 +1,6 @@
 name = "finance-ai"
 main = "src/index.ts"
-compatibility_date = "2024-11-12"
+compatibility_date = "2025-05-01"
 compatibility_flags = ["nodejs_compat"]
 
 # Cloudflare Workers AI Binding
@@ -15,6 +15,7 @@ binding = "AI"
 [vars]
 ENVIRONMENT = "production"
 DEFAULT_CURRENCY = "PKR"
+USER_TIMEZONE = "Asia/Karachi"
 
 # Secrets required (Deploy via `npx wrangler secret put <KEY>`):
 # - TELEGRAM_BOT_TOKEN

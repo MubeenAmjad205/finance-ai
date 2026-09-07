@@ -1,4 +1,5 @@
 import { MongoDBClient } from '../../db/mongodb';
+import { getUserCurrentMonth, formatUserDateTime, DEFAULT_USER_TIMEZONE } from '../../utils/timezone';
 
 export class ExportCommands {
   static async handleExport(
@@ -8,7 +9,7 @@ export class ExportCommands {
     botToken?: string
   ): Promise<string> {
     const rawMonth = args.trim();
-    const currentMonth = new Date().toISOString().substring(0, 7);
+    const currentMonth = getUserCurrentMonth(DEFAULT_USER_TIMEZONE);
     const targetMonth = rawMonth && /^\d{4}-\d{2}$/.test(rawMonth) ? rawMonth : currentMonth;
 
     // Fetch transactions
@@ -41,7 +42,7 @@ export class ExportCommands {
     };
 
     const rows = transactions.map(tx => [
-      escapeCsv(tx.timestamp ? tx.timestamp.substring(0, 19).replace('T', ' ') : ''),
+      escapeCsv(tx.timestamp ? formatUserDateTime(tx.timestamp, DEFAULT_USER_TIMEZONE) : ''),
       escapeCsv(tx.type),
       escapeCsv(tx.category),
       escapeCsv(tx.amount),

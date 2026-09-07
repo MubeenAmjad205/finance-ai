@@ -489,6 +489,12 @@ async function runTests() {
   // 28. Test Voice Handler Intent Delegation
   console.log('\n2️⃣8️⃣ Testing Voice Handler Intent Routing:');
   const { VoiceHandler } = await import('../src/telegram/handlers/voiceHandler');
+  const { TelegramApiClient } = await import('../src/telegram/client/telegramApi');
+  const origSend = TelegramApiClient.sendMessage;
+  const origDownload = TelegramApiClient.downloadFile;
+  TelegramApiClient.sendMessage = async () => true;
+  TelegramApiClient.downloadFile = async () => null;
+
   let delegatedText = '';
   await VoiceHandler.handleVoiceNote(
     {} as any,
@@ -500,7 +506,8 @@ async function runTests() {
       delegatedText = text;
     }
   );
-  // With mock download/transcribe returning empty, it falls back cleanly without crashing
+  TelegramApiClient.sendMessage = origSend;
+  TelegramApiClient.downloadFile = origDownload;
   assert(typeof VoiceHandler.handleVoiceNote === 'function', 'VoiceHandler exports handleVoiceNote with callback delegation');
 
   console.log(`\n================================`);

@@ -16,12 +16,23 @@ export class VoiceHandler {
     onTextMessage?: (text: string) => Promise<void>
   ): Promise<void> {
     const voiceObj = msg.voice || msg.audio;
-    await TelegramApiClient.sendMessage(botToken, chatId, `🎙️ Transcribing voice note with Cloudflare Workers AI Whisper...`);
+    await TelegramApiClient.sendMessage(botToken, chatId, `🎙️ Transcribing voice note in English...`);
 
     const audioBuffer = await TelegramApiClient.downloadFile(botToken, voiceObj.file_id);
     if (audioBuffer) {
       const transcribedText = await AIService.transcribeVoiceNote(env, audioBuffer);
       if (transcribedText) {
+        const cleanText = transcribedText.replace(/[^a-zA-Z0-9]/g, '').trim();
+        if (!cleanText || cleanText.length === 0) {
+          await TelegramApiClient.sendMessage(
+            botToken,
+            chatId,
+            `⚠️ *Voice note was inaudible or silent. Please speak closer to the mic and try again!*`,
+            { parse_mode: 'Markdown' }
+          );
+          return;
+        }
+
         await TelegramApiClient.sendMessage(botToken, chatId, `🗣️ **Transcribed:** "${transcribedText}"`, { parse_mode: 'Markdown' });
 
         if (onTextMessage) {

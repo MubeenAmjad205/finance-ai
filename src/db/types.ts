@@ -151,6 +151,7 @@ export interface WhitelistEntry {
   username?: string;
   firstName?: string;
   addedBy: string;
+  role?: string;
   chatType: 'personal' | 'group' | 'manual';
   createdAt: string;
 }
@@ -185,12 +186,16 @@ export interface Env {
   AI?: Ai; // Typed Cloudflare Workers AI Binding
   ENVIRONMENT?: string;
   DEFAULT_CURRENCY?: string;
+  USER_TIMEZONE?: string; // e.g. "Asia/Karachi" (default)
   ENABLE_AUTO_OCR?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_GROUP_BOT_TOKEN?: string;
   TELEGRAM_SECRET_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string; // For scheduled notifications
   TELEGRAM_ALLOWED_USER_IDS?: string; // Comma-separated allowed Telegram user/chat IDs
+  DATABASE_URL?: string;
+  GROQ_API_KEY?: string;
+  OPENAI_API_KEY?: string;
   MONGODB_DATA_API_KEY?: string;
   MONGODB_URI?: string;
   MONGODB_APP_ID?: string;

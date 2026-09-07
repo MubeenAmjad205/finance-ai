@@ -104,6 +104,28 @@ export class MemoryService {
   }
 
   /**
+   * Save a user account note or custom preference in long term memory
+   */
+  static recordCustomNote(chatId: string | number, note: string): void {
+    const key = String(chatId);
+    let mem = this.longTermCache.get(key) || {
+      chatId: key,
+      frequentCounterparties: [],
+      frequentCategories: [],
+      frequentMerchants: [],
+      customNotes: [],
+      updatedAt: new Date().toISOString()
+    };
+    if (!mem.customNotes) mem.customNotes = [];
+    if (!mem.customNotes.includes(note)) {
+      mem.customNotes.push(note);
+      if (mem.customNotes.length > 10) mem.customNotes.shift();
+    }
+    mem.updatedAt = new Date().toISOString();
+    this.longTermCache.set(key, mem);
+  }
+
+  /**
    * Generate token-efficient structured memory prompt block for LLM
    */
   static getStructuredMemoryContext(chatId: string | number): string {

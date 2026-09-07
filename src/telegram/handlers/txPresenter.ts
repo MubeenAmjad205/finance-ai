@@ -74,9 +74,10 @@ export class TxPresenter {
       ]);
     }
 
+    const accLabel = parsed.type === 'income' ? 'Deposit to' : 'Account';
     inlineKeyboard.push([
       { text: `✅ Confirm & Save`, callback_data: `tx_confirm:${txId}` },
-      { text: `🏦 Account: ${parsed.account}`, callback_data: `tx_choose_acc:${txId}` }
+      { text: `🏦 ${accLabel}: ${parsed.account}`, callback_data: `tx_choose_acc:${txId}` }
     ]);
     inlineKeyboard.push([
       { text: `🏷️ Category: ${parsed.category}`, callback_data: `tx_edit_cat:${txId}` },
@@ -88,10 +89,26 @@ export class TxPresenter {
       currencyStr = `${parsed.originalAmount} ${parsed.originalCurrency} (~${parsed.amount.toLocaleString()} PKR @ Rate ${parsed.exchangeRate})`;
     }
 
+    let typeEmoji = '💸';
+    let accountField = 'Payment Account';
+    if (parsed.type === 'income') {
+      typeEmoji = '💵';
+      accountField = 'Deposit Account';
+    } else if (parsed.type === 'transfer') {
+      typeEmoji = '🔄';
+      accountField = 'Source Account';
+    } else if (parsed.type === 'debt_given') {
+      typeEmoji = '🤝';
+      accountField = 'Lent From';
+    } else if (parsed.type === 'debt_received') {
+      typeEmoji = '🤝';
+      accountField = 'Received Into';
+    }
+
     let confirmationText = `🔍 **Confirm New Transaction?**
 ──────────────────────
-💰 **Amount:** ${currencyStr} (${parsed.type.toUpperCase()})
-🏦 **Payment Account:** ${parsed.account}
+${typeEmoji} **Amount:** ${currencyStr} (${parsed.type.toUpperCase()})
+🏦 **${accountField}:** ${parsed.account}
 🏷️ **Category:** ${parsed.category}
 ${parsed.personName ? `${personMatchInfo}\n` : ''}📝 **Note:** ${parsed.note || 'None'}`;
 

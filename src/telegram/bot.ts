@@ -15,6 +15,8 @@ import { TxPresenter } from './handlers/txPresenter';
 import { VoiceHandler } from './handlers/voiceHandler';
 import { PhotoHandler } from './handlers/photoHandler';
 import { WhitelistCommands } from './commands/whitelistCommands';
+import { AccountService } from '../services/accountService';
+import { getUserCurrentMonth, DEFAULT_USER_TIMEZONE } from '../utils/timezone';
 
 export class TelegramBotHandler {
   private env: Env;
@@ -210,6 +212,61 @@ export class TelegramBotHandler {
   private async handleTextMessage(chatId: number, text: string, messageId: number): Promise<void> {
     const resolvedFollowUp = ConversationStateManager.resolveFollowUp(chatId, text);
     const effectiveText = resolvedFollowUp || text;
+
+    // Check if the user is providing their account number, mobile wallet, IBAN or Raast ID
+    const lowerText = effectiveText.toLowerCase();
+    const isSpending = lowerText.includes('spent') || lowerText.includes('paid') || lowerText.includes('send') || lowerText.includes('sent') || lowerText.includes('transfer') || lowerText.includes('kharcha') || lowerText.includes('diye') || lowerText.includes('bought');
+
+    if (!isSpending) {
+      const detectedInst = AccountService.detectAccount(effectiveText);
+      const phoneOrIbanMatch = effectiveText.match(/(?:account\s*(?:no|num|number)?|number|id|iban)?\s*(?:is|:)?\s*(\b03\d{9}\b|\b\d{10,16}\b|[A-Z]{2}\d{2}[A-Z0-9]{16,24})/i);
+
+      if (detectedInst && phoneOrIbanMatch) {
+        const accNum = phoneOrIbanMatch[1];
+        const existingAccounts = await this.db.getAllAccounts();
+        const existing = existingAccounts.find(a => a.name.toLowerCase() === detectedInst.name.toLowerCase());
+        if (!existing) {
+          await this.db.accounts.create({
+            name: detectedInst.name,
+            balance: 0,
+            type: detectedInst.type,
+            currency: 'PKR',
+            updatedAt: new Date().toISOString()
+          });
+        }
+        MemoryService.addCustomNote(chatId, `${detectedInst.name} Account: ${accNum}`);
+
+        const confirmationMsg = `🏦 **${detectedInst.name} Account Saved!**\n──────────────────────\n` +
+          `📱 **Account Number:** \`${accNum}\`\n` +
+          `💾 *Saved to your personal profile for payment links & recordkeeping.*\n\n` +
+          `💡 *Current Balance:* \`${existing ? existing.balance : 0} PKR\`\n` +
+          `To set your starting balance, type:\n\`/setbalance ${detectedInst.name} <amount>\``;
+
+        await TelegramApiClient.sendMessage(this.botToken, chatId, confirmationMsg, { parse_mode: 'Markdown' });
+        return;
+      }
+    }
+
+    // Check if the user is naturally setting or updating an account balance (e.g. from voice note or text)
+    // Examples: "Set UBL account balance 1000", "Set balance UBL 1000", "Update EasyPaisa balance to 500"
+    const isSetBalancePattern = !isSpending && (
+      /(?:set|update|change|initialize)\s+(?:my\s+)?(?:account\s+)?(?:balance|starting\s+balance)?/i.test(effectiveText) ||
+      /(?:balance|balance\s+is|balance\s+to)\s*(?:is|to|:)?\s*\d+/i.test(effectiveText)
+    );
+
+    if (isSetBalancePattern) {
+      const detectedInst = AccountService.detectAccount(effectiveText);
+      const amountMatch = effectiveText.match(/(\b\d+(?:,\d+)*(?:\.\d+)?\b)/);
+      if (detectedInst && amountMatch) {
+        const amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+        if (!isNaN(amount) && amount >= 0) {
+          const responseText = await TelegramCommandHandler.handleSetBalance(this.db, `${detectedInst.name} ${amount}`);
+          await TelegramApiClient.sendMessage(this.botToken, chatId, responseText, { parse_mode: 'Markdown' });
+          return;
+        }
+      }
+    }
+
     const intent = AIService.detectMessageIntent(effectiveText);
 
     if (intent === 'chat') {
@@ -219,10 +276,23 @@ export class TelegramBotHandler {
     }
 
     if (intent === 'question') {
-      const currentMonth = new Date().toISOString().substring(0, 7);
-      const stats = await this.db.getMonthlyStats(currentMonth);
+      const userTz = this.env.USER_TIMEZONE || DEFAULT_USER_TIMEZONE;
+      const currentMonth = getUserCurrentMonth(userTz);
+      const [stats, accounts, persons] = await Promise.all([
+        this.db.getMonthlyStats(currentMonth),
+        this.db.getAllAccounts(),
+        this.db.getAllPersons()
+      ]);
       const memoryCtx = MemoryService.getStructuredMemoryContext(chatId);
-      const answer = await AIService.answerFinancialQuery(this.env, effectiveText, `${JSON.stringify(stats)}\n\n${memoryCtx}`);
+      
+      const accountsSummary = accounts.length > 0
+        ? accounts.map(a => `• ${a.name}: ${a.balance.toLocaleString()} ${a.currency || 'PKR'}`).join('\n')
+        : '• No accounts configured yet (use /setbalance to add)';
+
+      const netSavings = stats.totalIncome - stats.totalExpense;
+      const context = `[ACCOUNT BALANCES]\n${accountsSummary}\n\n[MONTHLY STATS FOR ${currentMonth}]\n- Total Income: ${stats.totalIncome} PKR\n- Total Expenses: ${stats.totalExpense} PKR\n- Net Savings: ${netSavings} PKR\n- Spending Categories: ${JSON.stringify(stats.categoryBreakdown)}\n\n${memoryCtx}`;
+
+      const answer = await AIService.answerFinancialQuery(this.env, effectiveText, context);
       await TelegramApiClient.sendMessage(this.botToken, chatId, answer, { parse_mode: 'Markdown' });
       return;
     }
