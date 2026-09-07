@@ -125,6 +125,9 @@ export class MongoDBAtlasClient {
         case 'insertOne': {
           const doc = { ...payload.document };
           delete doc._id;
+          if (!doc.id) {
+            doc.id = crypto.randomUUID();
+          }
           if (!doc.createdAt && table !== 'accounts') {
             doc.createdAt = getUtcTimestamp();
           }
@@ -242,7 +245,9 @@ export class MongoDBAtlasClient {
               ...(payload.update?.$setOnInsert || {})
             };
             delete newDoc._id;
-            delete newDoc.id;
+            if (!newDoc.id) {
+              newDoc.id = crypto.randomUUID();
+            }
 
             const cols: string[] = [];
             const placeholders: string[] = [];
