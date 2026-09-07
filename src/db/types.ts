@@ -1,6 +1,6 @@
 import type { Ai } from '@cloudflare/workers-types';
 
-export type TransactionType = 'expense' | 'income' | 'transfer' | 'debt_given' | 'debt_received' | 'group_split';
+export type TransactionType = 'expense' | 'income' | 'transfer' | 'debt_given' | 'debt_received' | 'group_split' | 'set_balance';
 
 export type TransactionStatus = 'pending_confirmation' | 'confirmed' | 'rejected';
 

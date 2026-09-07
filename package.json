@@ -36,9 +36,11 @@
     "@prisma/adapter-neon": "^7.10.0",
     "@prisma/client": "^6.4.1",
     "@prisma/extension-accelerate": "^1.2.2",
+    "dotenv": "^8.2.0",
     "fuse.js": "^7.0.0",
     "hono": "^4.6.12",
     "mongodb": "^6.14.2",
+    "node-fetch": "^3.3.2",
     "prisma": "^6.4.1",
     "ws": "^8.21.3"
   }
