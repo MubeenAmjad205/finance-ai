@@ -40,6 +40,7 @@ Supported Currencies:
 - "PKR", "USD", "EUR", "GBP", "AED", "SAR"
 
 CRITICAL TRANSACTION TYPE RULES:
+- "set_balance": User is setting, adding, opening, or initializing an account or starting balance (e.g. "Add my new UBL account with initial balance of 1000", "Set UBL balance 5000", "Update EasyPaisa balance to 2000", "Open Meezan account with 50000").
 - "income": Money coming IN to the user (e.g. "receive", "received", "credited", "got", "salary", "deposit", "deposited", "earned", "client paid", "refund", "cashback", "mila", "aaya"). Example: "Today I receive 1000 in my UBL bank account" -> type MUST be "income"!
 - "expense": Money going OUT or spent (e.g. "spent", "paid", "bought", "kharcha", "diye", "bill", "purchased", "recharge").
 - "transfer": Moving money between user's own accounts (e.g. "transferred 5000 from Meezan to JazzCash").
@@ -51,7 +52,7 @@ Categories:
 
 Response Format (STRICT JSON ONLY, no markdown, no conversational text):
 {
-  "type": "expense" | "income" | "transfer" | "debt_given" | "debt_received",
+  "type": "expense" | "income" | "transfer" | "debt_given" | "debt_received" | "set_balance",
   "amount": number,
   "currency": "PKR" | "USD" | "EUR" | "GBP" | "AED" | "SAR",
   "category": "string",
@@ -146,18 +147,23 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
 
     const { amountInPkr, rate } = CurrencyService.convertToPkr(rawAmount, origCurrency);
 
-    let type: TransactionType = ['income', 'expense', 'transfer', 'debt_given', 'debt_received'].includes(parsed.type)
+    let type: TransactionType = ['income', 'expense', 'transfer', 'debt_given', 'debt_received', 'set_balance'].includes(parsed.type)
       ? parsed.type
       : 'expense';
 
-    // Heuristic correction: If user clearly stated receiving funds (income), override false expense classification
-    const isIncomeExplicit = /\b(receive|received|recieved|receives|receiving|credited|deposit|deposited|salary|freelance|earned|earning|inflow|cashback|refund|reversal|mila|milay|aaye|aaya|kamai)\b/i.test(lowerRaw);
-    const isSpendingExplicit = /\b(spent|paid|buy|bought|purchase|cost|kharcha|diye|bill|fee|petrol|dinner|lunch|food)\b/i.test(lowerRaw);
+    const isSetBalanceExplicit = /\b(initial balance|starting balance|opening balance|set balance|account with .* balance|add (?:my|may|new)? .* account|account.* balance of)\b/i.test(lowerRaw);
+    if (isSetBalanceExplicit) {
+      type = 'set_balance';
+    } else {
+      // Heuristic correction: If user clearly stated receiving funds (income), override false expense classification
+      const isIncomeExplicit = /\b(receive|received|recieved|receives|receiving|credited|deposit|deposited|salary|freelance|earned|earning|inflow|cashback|refund|reversal|mila|milay|aaye|aaya|kamai)\b/i.test(lowerRaw);
+      const isSpendingExplicit = /\b(spent|paid|buy|bought|purchase|cost|kharcha|diye|bill|fee|petrol|dinner|lunch|food)\b/i.test(lowerRaw);
 
-    if (isIncomeExplicit && !isSpendingExplicit) {
-      type = 'income';
-    } else if (isSpendingExplicit && !isIncomeExplicit) {
-      type = 'expense';
+      if (isIncomeExplicit && !isSpendingExplicit) {
+        type = 'income';
+      } else if (isSpendingExplicit && !isIncomeExplicit) {
+        type = 'expense';
+      }
     }
 
     const sanitizedNote = PiiFilter.redact(parsed.note || rawText).redactedText;
@@ -202,13 +208,18 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
 
     // Detect type
     let type: TransactionType = 'expense';
-    const isIncomeExplicit = /\b(receive|received|recieved|receives|receiving|credited|deposit|deposited|salary|freelance|earned|earning|inflow|cashback|refund|reversal|mila|milay|aaye|aaya|kamai|got)\b/i.test(lower);
-    const isTransferExplicit = /\b(sent|transferred|transfer|bheja|bheje)\b/i.test(lower);
+    const isSetBalanceExplicit = /\b(initial balance|starting balance|opening balance|set balance|account with .* balance|add (?:my|may|new)? .* account|account.* balance of)\b/i.test(lower);
+    if (isSetBalanceExplicit) {
+      type = 'set_balance';
+    } else {
+      const isIncomeExplicit = /\b(receive|received|recieved|receives|receiving|credited|deposit|deposited|salary|freelance|earned|earning|inflow|cashback|refund|reversal|mila|milay|aaye|aaya|kamai|got)\b/i.test(lower);
+      const isTransferExplicit = /\b(sent|transferred|transfer|bheja|bheje)\b/i.test(lower);
 
-    if (isIncomeExplicit) {
-      type = 'income';
-    } else if (isTransferExplicit) {
-      type = 'transfer';
+      if (isIncomeExplicit) {
+        type = 'income';
+      } else if (isTransferExplicit) {
+        type = 'transfer';
+      }
     }
 
     // Detect person
