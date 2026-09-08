@@ -394,7 +394,7 @@ export class TelegramBotHandler {
     for (const item of statementItems.slice(0, 5)) {
       summaryMsg += `• **${item.description}**: ${item.amount.toLocaleString()} PKR (${item.type.toUpperCase()})\n`;
     }
-    summaryMsg += `\n*Tap below to confirm batch import into MongoDB:*`;
+    summaryMsg += `\n*Tap below to confirm batch import into database:*`;
 
     await TelegramApiClient.sendMessage(this.botToken, chatId, summaryMsg, {
       parse_mode: 'Markdown',
