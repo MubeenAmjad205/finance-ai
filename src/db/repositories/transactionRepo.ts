@@ -1,59 +1,150 @@
-import { MongoDBAtlasClient } from '../client';
+import { NeonPostgresClient } from '../neonClient';
+import { InMemoryMockStore } from '../mockStore';
 import { Transaction } from '../types';
 
 export class TransactionRepository {
-  constructor(private client: MongoDBAtlasClient) {}
+  constructor(
+    private neon: NeonPostgresClient,
+    private mockStore: InMemoryMockStore
+  ) {}
+
+  private mapRowToTransaction(r: any): Transaction {
+    return {
+      _id: r.id,
+      type: r.type,
+      amount: Number(r.amount) || 0,
+      originalAmount: r.originalAmount ? Number(r.originalAmount) : undefined,
+      originalCurrency: r.originalCurrency || undefined,
+      exchangeRate: r.exchangeRate ? Number(r.exchangeRate) : undefined,
+      currency: r.currency || 'PKR',
+      category: r.category,
+      account: r.account,
+      personId: r.personId || undefined,
+      personName: r.personName || undefined,
+      note: r.note || '',
+      rawText: r.rawText || '',
+      status: r.status || 'confirmed',
+      timestamp: r.timestamp,
+      telegramMessageId: r.telegramMessageId ? Number(r.telegramMessageId) : undefined,
+      telegramUserId: r.telegramUserId || undefined,
+      isVoiceNote: Boolean(r.isVoiceNote),
+      voiceTranscription: r.voiceTranscription || undefined,
+      isRecurring: Boolean(r.isRecurring),
+      tags: Array.isArray(r.tags) ? r.tags : typeof r.tags === 'string' ? JSON.parse(r.tags) : [],
+      createdAt: r.createdAt || new Date().toISOString()
+    };
+  }
 
   async create(tx: Omit<Transaction, '_id' | 'createdAt'>): Promise<string> {
-    const doc: Transaction = {
-      ...tx,
-      createdAt: new Date().toISOString()
-    };
+    if (this.neon.isConfigured) {
+      const id = `tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const createdAt = new Date().toISOString();
 
-    const res = await this.client.execute<{ insertedId: string }>('insertOne', 'transactions', { document: doc });
-    return res?.insertedId || doc._id || 'tx_' + Date.now();
+      await this.neon.query(
+        `INSERT INTO transactions (
+          id, type, amount, "originalAmount", "originalCurrency", "exchangeRate",
+          currency, category, account, "personId", "personName", note, "rawText",
+          status, timestamp, "telegramMessageId", "telegramUserId", "isVoiceNote",
+          "voiceTranscription", "isRecurring", tags, "createdAt"
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
+        )`,
+        [
+          id,
+          tx.type,
+          tx.amount,
+          tx.originalAmount || null,
+          tx.originalCurrency || null,
+          tx.exchangeRate || null,
+          tx.currency || 'PKR',
+          tx.category,
+          tx.account,
+          tx.personId || null,
+          tx.personName || null,
+          tx.note || '',
+          tx.rawText || '',
+          tx.status || 'confirmed',
+          tx.timestamp || createdAt,
+          tx.telegramMessageId || null,
+          tx.telegramUserId ? String(tx.telegramUserId) : null,
+          tx.isVoiceNote || false,
+          tx.voiceTranscription || null,
+          tx.isRecurring || false,
+          JSON.stringify(tx.tags || []),
+          createdAt
+        ]
+      );
+      return id;
+    }
+    return this.mockStore.createTransaction(tx);
   }
 
   async getById(id: string): Promise<Transaction | null> {
-    const res = await this.client.execute<{ document: Transaction }>('findOne', 'transactions', {
-      filter: { _id: id.length === 24 ? { $oid: id } : id }
-    });
-    return res?.document || null;
+    if (this.neon.isConfigured) {
+      const rows = await this.neon.query<any>('SELECT * FROM transactions WHERE id = $1 LIMIT 1', [id]);
+      if (rows.length === 0) return null;
+      return this.mapRowToTransaction(rows[0]);
+    }
+    return this.mockStore.getTransactionById(id);
   }
 
   async update(id: string, update: Partial<Transaction>): Promise<boolean> {
-    const res = await this.client.execute<{ matchedCount: number }>('updateOne', 'transactions', {
-      filter: { _id: id.length === 24 ? { $oid: id } : id },
-      update: { $set: update }
-    });
-    return (res?.matchedCount || 0) > 0;
+    if (this.neon.isConfigured) {
+      const setClauses: string[] = [];
+      const values: any[] = [];
+      let idx = 1;
+
+      for (const [key, val] of Object.entries(update)) {
+        if (key === '_id' || key === 'id') continue;
+        const colName = key === 'tags' ? 'tags' : `"${key}"`;
+        const colVal = key === 'tags' ? JSON.stringify(val) : val;
+        setClauses.push(`${colName} = $${idx++}`);
+        values.push(colVal);
+      }
+
+      if (setClauses.length === 0) return true;
+      values.push(id);
+
+      await this.neon.query(
+        `UPDATE transactions SET ${setClauses.join(', ')} WHERE id = $${idx}`,
+        values
+      );
+      return true;
+    }
+    return this.mockStore.updateTransaction(id, update);
   }
 
   async getLastConfirmed(): Promise<Transaction | null> {
-    const res = await this.client.execute<{ documents: Transaction[] }>('find', 'transactions', {
-      filter: { status: 'confirmed' },
-      sort: { timestamp: -1 },
-      limit: 1
-    });
-    return res?.documents?.[0] || null;
+    if (this.neon.isConfigured) {
+      const rows = await this.neon.query<any>(
+        "SELECT * FROM transactions WHERE status = 'confirmed' ORDER BY timestamp DESC LIMIT 1"
+      );
+      if (rows.length === 0) return null;
+      return this.mapRowToTransaction(rows[0]);
+    }
+    return this.mockStore.getLastConfirmedTransaction();
   }
 
   async getRecent(limit = 10): Promise<Transaction[]> {
-    const res = await this.client.execute<{ documents: Transaction[] }>('find', 'transactions', {
-      sort: { timestamp: -1 },
-      limit
-    });
-    return res?.documents || [];
+    if (this.neon.isConfigured) {
+      const rows = await this.neon.query<any>(
+        'SELECT * FROM transactions ORDER BY timestamp DESC LIMIT $1',
+        [limit]
+      );
+      return rows.map(r => this.mapRowToTransaction(r));
+    }
+    return this.mockStore.getRecentTransactions(limit);
   }
 
   async getByMonth(monthIsoPrefix: string): Promise<Transaction[]> {
-    const res = await this.client.execute<{ documents: Transaction[] }>('find', 'transactions', {
-      filter: {
-        timestamp: { $regex: `^${monthIsoPrefix}` }
-      },
-      sort: { timestamp: -1 }
-    });
-    return res?.documents || [];
+    if (this.neon.isConfigured) {
+      const rows = await this.neon.query<any>(
+        "SELECT * FROM transactions WHERE timestamp LIKE $1 ORDER BY timestamp DESC",
+        [`${monthIsoPrefix}%`]
+      );
+      return rows.map(r => this.mapRowToTransaction(r));
+    }
+    return this.mockStore.getTransactionsByMonth(monthIsoPrefix);
   }
 
   async getMonthlyStats(monthIsoPrefix: string): Promise<{
@@ -87,9 +178,10 @@ export class TransactionRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const res = await this.client.execute<{ deletedCount: number }>('deleteOne', 'transactions', {
-      filter: { _id: id.length === 24 ? { $oid: id } : id }
-    });
-    return (res?.deletedCount || 0) > 0;
+    if (this.neon.isConfigured) {
+      await this.neon.query('DELETE FROM transactions WHERE id = $1', [id]);
+      return true;
+    }
+    return this.mockStore.deleteTransaction(id);
   }
 }

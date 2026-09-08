@@ -1,27 +1,47 @@
-import { MongoDBAtlasClient } from '../client';
+import { NeonPostgresClient } from '../neonClient';
+import { InMemoryMockStore } from '../mockStore';
 import { Reminder } from '../types';
 
 export class ReminderRepository {
-  constructor(private client: MongoDBAtlasClient) {}
+  constructor(
+    private neon: NeonPostgresClient,
+    private mockStore: InMemoryMockStore
+  ) {}
 
   async getAll(): Promise<Reminder[]> {
-    const res = await this.client.execute<{ documents: Reminder[] }>('find', 'reminders', {
-      sort: { createdAt: -1 }
-    });
-    return res?.documents || [];
+    if (this.neon.isConfigured) {
+      const rows = await this.neon.query<any>('SELECT * FROM reminders ORDER BY "createdAt" DESC');
+      return rows.map(r => ({
+        _id: r.id,
+        text: r.text,
+        chatId: r.chatId || undefined,
+        dueAt: r.dueAt || undefined,
+        isTriggered: Boolean(r.isTriggered),
+        createdAt: r.createdAt || new Date().toISOString()
+      }));
+    }
+    return this.mockStore.getReminders();
   }
 
   async add(text: string, chatId?: string | number): Promise<Reminder> {
+    const id = `rem_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const createdAt = new Date().toISOString();
     const reminder: Reminder = {
+      _id: id,
       text,
       chatId,
       isTriggered: false,
-      createdAt: new Date().toISOString()
+      createdAt
     };
 
-    const res = await this.client.execute<{ insertedId: string }>('insertOne', 'reminders', {
-      document: reminder
-    });
-    return { ...reminder, _id: res?.insertedId };
+    if (this.neon.isConfigured) {
+      await this.neon.query(
+        `INSERT INTO reminders (id, text, "chatId", "isTriggered", "createdAt")
+         VALUES ($1, $2, $3, FALSE, $4)`,
+        [id, text, chatId ? String(chatId) : null, createdAt]
+      );
+      return reminder;
+    }
+    return this.mockStore.addReminder(text, chatId);
   }
 }

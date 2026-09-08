@@ -1,5 +1,6 @@
 import { Env, Transaction, Person, Account, BudgetCap, Reminder, SavingsGoal, Kameti, WhitelistEntry } from './types';
-import { MongoDBAtlasClient } from './client';
+import { NeonPostgresClient } from './neonClient';
+import { InMemoryMockStore } from './mockStore';
 import { TransactionRepository } from './repositories/transactionRepo';
 import { PersonRepository } from './repositories/personRepo';
 import { AccountRepository } from './repositories/accountRepo';
@@ -11,11 +12,13 @@ import { GroupAuditRepository } from './repositories/groupAuditRepo';
 import { KametiRepository } from './repositories/kametiRepo';
 import { WhitelistRepository } from './repositories/whitelistRepo';
 
-/**
- * Unified Database Facade for Cloudflare Workers & MongoDB Atlas Data API.
- */
 export class MongoDBClient {
-  public client: MongoDBAtlasClient;
+  public neon: NeonPostgresClient;
+  public mockStore: InMemoryMockStore;
+
+  get client() {
+    return { lastError: this.neon.lastError };
+  }
 
   public transactions: TransactionRepository;
   public persons: PersonRepository;
@@ -29,18 +32,19 @@ export class MongoDBClient {
   public whitelist: WhitelistRepository;
 
   constructor(env: Env) {
-    this.client = new MongoDBAtlasClient(env);
+    this.neon = new NeonPostgresClient(env);
+    this.mockStore = InMemoryMockStore.getInstance();
 
-    this.transactions = new TransactionRepository(this.client);
-    this.persons = new PersonRepository(this.client);
-    this.accounts = new AccountRepository(this.client);
-    this.budgets = new BudgetRepository(this.client);
-    this.reminders = new ReminderRepository(this.client);
-    this.goals = new GoalRepository(this.client);
-    this.groupExpenses = new GroupExpenseRepository(this.client);
-    this.groupAudits = new GroupAuditRepository(this.client);
-    this.kametis = new KametiRepository(this.client);
-    this.whitelist = new WhitelistRepository(this.client);
+    this.transactions = new TransactionRepository(this.neon, this.mockStore);
+    this.persons = new PersonRepository(this.neon, this.mockStore);
+    this.accounts = new AccountRepository(this.neon, this.mockStore);
+    this.budgets = new BudgetRepository(this.neon, this.mockStore);
+    this.reminders = new ReminderRepository(this.neon, this.mockStore);
+    this.goals = new GoalRepository(this.neon, this.mockStore);
+    this.groupExpenses = new GroupExpenseRepository(this.neon, this.mockStore);
+    this.groupAudits = new GroupAuditRepository(this.neon, this.mockStore);
+    this.kametis = new KametiRepository(this.neon, this.mockStore);
+    this.whitelist = new WhitelistRepository(this.neon, this.mockStore);
   }
 
   // --- Transactions Facade ---
@@ -193,8 +197,11 @@ export class MongoDBClient {
   }
 }
 
+export class PostgresClient extends MongoDBClient {}
+export class DatabaseClient extends MongoDBClient {}
+
 /**
- * Isolated MongoDB Client for Group Bot.
+ * Isolated Database Client for Group Bot.
  * STRICT PRIVACY GUARANTEE: Does NOT expose personal transactions, account balances, or personal counterparties.
  */
 export class GroupMongoDBClient {

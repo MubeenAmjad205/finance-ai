@@ -20,19 +20,28 @@ model Account {
 }
 
 model Transaction {
-  id         String   @id @default(uuid())
-  type       String
-  amount     Float
-  currency   String   @default("PKR")
-  category   String
-  account    String
-  personId   String?
-  personName String?
-  note       String?
-  rawText    String?
-  status     String   @default("confirmed")
-  timestamp  String
-  createdAt  String?
+  id                 String   @id @default(uuid())
+  type               String
+  amount             Float
+  originalAmount     Float?
+  originalCurrency   String?
+  exchangeRate       Float?
+  currency           String   @default("PKR")
+  category           String
+  account            String
+  personId           String?
+  personName         String?
+  note               String?
+  rawText            String?
+  status             String   @default("confirmed")
+  timestamp          String
+  telegramMessageId  Int?
+  telegramUserId     String?
+  isVoiceNote        Boolean? @default(false)
+  voiceTranscription String?
+  isRecurring        Boolean? @default(false)
+  tags               String[]
+  createdAt          String?
 
   @@map("transactions")
 }
@@ -83,23 +92,33 @@ model Reminder {
 }
 
 model GroupExpense {
-  id        String  @id @default(uuid())
-  groupId   String?
-  payer     String
-  amount    Float
-  note      String?
-  splits    Json?
-  createdAt String?
+  id           String   @id @default(uuid())
+  billCode     String?
+  groupId      String?
+  groupTitle   String?
+  totalAmount  Float    @default(0)
+  paidBy       Json?
+  note         String?
+  participants Json?
+  timestamp    String?
+  createdAt    String?
 
   @@map("group_expenses")
 }
 
 model GroupAudit {
-  id        String  @id @default(uuid())
-  groupId   String?
-  action    String
-  data      Json?
-  timestamp String?
+  id                String  @id @default(uuid())
+  groupId           String?
+  groupTitle        String?
+  timestamp         String?
+  action            String
+  actor             Json?
+  expenseId         String?
+  details           Json?
+  rawTelegramText   String?
+  telegramMessageId Int?
+  evidenceHash      String?
+  createdAt         String?
 
   @@map("group_audit_logs")
 }
@@ -130,3 +149,4 @@ model WhitelistEntry {
 
   @@map("whitelist")
 }
+

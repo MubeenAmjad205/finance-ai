@@ -20,6 +20,28 @@ export class FinancialQueryService {
     const temporal = TemporalResolver.getCurrentContext();
     const lang = IntentClassifier.detectLanguage(sanitizedText);
 
+    if (isGroup) {
+      const groupSecurityPrompt = `STRICT SECURITY DIRECTIVE: You are an Office Group Lunch Bot. You ONLY manage public group lunch bills and shared office expenses. Under NO circumstances do you have access to personal bank balances or private transactions. If the user asks about personal bank balances, refuse politely.`;
+      try {
+        if (env.AI && typeof (env.AI as any).run === 'function') {
+          const response: any = await (env.AI as any).run('@cf/meta/llama-3.2-3b-instruct', {
+            messages: [
+              { role: 'system', content: groupSecurityPrompt },
+              { role: 'user', content: sanitizedText }
+            ],
+            max_tokens: 250
+          });
+          const reply = response?.response || response?.result;
+          if (reply && typeof reply === 'string') {
+            return reply.trim();
+          }
+        }
+      } catch (err) {
+        console.error('[Group Security Query Error]:', err);
+      }
+      return 'I am your Office Group Lunch Bot. I only manage public group lunch bills and do not have access to personal bank balances.';
+    }
+
     const systemPrompt = lang === 'roman_urdu'
       ? `You are an intelligent, friendly personal finance assistant for users in Pakistan.
 CRITICAL LANGUAGE & DATA RULES:
