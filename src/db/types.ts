@@ -28,6 +28,7 @@ export interface Transaction {
   isHighValue?: boolean;
   splitPayments?: { account: string; amount: number }[];
   evidenceHash?: string; // HMAC-SHA256 tamper-detection signature
+  confidence?: number; // AI confidence score 0..1
   tags?: string[]; // e.g. ["#TaxDeductible", "#Freelance"]
   createdAt?: string;
 }

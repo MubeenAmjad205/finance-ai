@@ -193,4 +193,37 @@ export class GroupPresenter {
 
     return true;
   }
+
+  static async sendPoliteGroupReminder(
+    botToken: string,
+    chatId: number | string,
+    expenses: GroupExpense[],
+    customNote?: string
+  ): Promise<void> {
+    const settlements = GroupExpenseService.calculateNetSettlements(expenses);
+    if (settlements.length === 0) {
+      await TelegramApiClient.sendMessage(botToken, chatId, `🟢 **Group Ledger is Fully Settled!** No outstanding reminders to send.`);
+      return;
+    }
+
+    let pingText = `🔔 **COURTEOUS GROUP LUNCH SETTLEMENT PING**\n`;
+    pingText += `──────────────────────\n`;
+    if (customNote) pingText += `💬 *Note:* "${escapeMarkdown(customNote)}"\n\n`;
+    pingText += `*Friendly ping for open office lunch shares:*\n\n`;
+
+    for (const s of settlements) {
+      pingText += `• **${escapeMarkdown(s.fromUser)}** ➡️ Please send **${s.amount.toLocaleString()} PKR** to **${escapeMarkdown(s.toUser)}**\n`;
+    }
+
+    pingText += `\n📲 *Tap below to view payment details or mark your share as paid:*`;
+
+    await TelegramApiClient.sendMessage(botToken, chatId, pingText, {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: `📊 View Full Group Ledger`, callback_data: `g_show_ledger` }]
+        ]
+      }
+    });
+  }
 }

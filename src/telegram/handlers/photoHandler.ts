@@ -33,6 +33,12 @@ export class PhotoHandler {
       return;
     }
 
-    await TxPresenter.presentTransactionConfirmation(botToken, db, chatId, parsedResult, text || 'Receipt Screenshot', msg.message_id);
+    let noteWithItems = parsedResult.note || text || 'Receipt Screenshot';
+    if ((parsedResult as any).lineItems && Array.isArray((parsedResult as any).lineItems)) {
+      const itemSummaries = (parsedResult as any).lineItems.map((item: any) => `${item.description} (${item.amount} PKR)`).join(', ');
+      noteWithItems += ` [Items: ${itemSummaries}]`;
+    }
+
+    await TxPresenter.presentTransactionConfirmation(botToken, db, chatId, parsedResult, noteWithItems, msg.message_id);
   }
 }

@@ -208,6 +208,8 @@ export class TelegramBotHandler {
       responseText = await TelegramCommandHandler.handleDigest(this.db);
     } else if (command === '/recap') {
       responseText = await TelegramCommandHandler.handleRecap(this.db);
+    } else if (command === '/projection' || command === '/payday') {
+      responseText = await TelegramCommandHandler.handleProjection(this.db);
     } else if (command === '/whitelist') {
       responseText = await WhitelistCommands.handlePersonalWhitelist(this.db, this.env, args, fromId || chatId, senderName);
     } else {
