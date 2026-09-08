@@ -1,4 +1,5 @@
 import { Transaction } from '../../db/types';
+import { MongoDBClient } from '../../db/mongodb';
 
 export interface ConversationTurn {
   role: 'user' | 'assistant';
@@ -22,7 +23,7 @@ export class MemoryService {
   private static readonly SHORT_TERM_TTL_MS = 60 * 60 * 1000; // 1 hour
   private static readonly MAX_SHORT_TERM_TURNS = 8;
 
-  // Long-term persistent memory store (in-memory cache + MongoDB backed)
+  // Long-term persistent memory store (in-memory cache + Neon Postgres backed)
   private static longTermCache = new Map<string, UserFinancialMemory>();
 
   /**
@@ -60,11 +61,37 @@ export class MemoryService {
   }
 
   /**
-   * Update long-term memory based on confirmed transactions
+   * Fetch long-term memory for user (with Neon Postgres DB backing)
    */
-  static async learnFromTransaction(chatId: string | number, tx: Partial<Transaction>): Promise<void> {
+  static async getUserMemory(chatId: string | number, db?: MongoDBClient): Promise<UserFinancialMemory> {
     const key = String(chatId);
-    let mem = this.longTermCache.get(key) || {
+    let cached = this.longTermCache.get(key);
+
+    if (cached) return cached;
+
+    if (db && db.neon.isConfigured) {
+      try {
+        const rows = await db.neon.query<any>('SELECT * FROM user_memories WHERE "chatId" = $1 LIMIT 1', [key]);
+        if (rows.length > 0) {
+          const r = rows[0];
+          const fetched: UserFinancialMemory = {
+            chatId: r.chatId,
+            preferredAccount: r.preferredAccount || undefined,
+            frequentCounterparties: Array.isArray(r.frequentCounterparties) ? r.frequentCounterparties : typeof r.frequentCounterparties === 'string' ? JSON.parse(r.frequentCounterparties) : [],
+            frequentCategories: Array.isArray(r.frequentCategories) ? r.frequentCategories : typeof r.frequentCategories === 'string' ? JSON.parse(r.frequentCategories) : [],
+            frequentMerchants: Array.isArray(r.frequentMerchants) ? r.frequentMerchants : typeof r.frequentMerchants === 'string' ? JSON.parse(r.frequentMerchants) : [],
+            customNotes: Array.isArray(r.customNotes) ? r.customNotes : typeof r.customNotes === 'string' ? JSON.parse(r.customNotes) : [],
+            updatedAt: r.updatedAt || new Date().toISOString()
+          };
+          this.longTermCache.set(key, fetched);
+          return fetched;
+        }
+      } catch (err) {
+        console.error('[MemoryService getUserMemory DB Fetch Error]:', err);
+      }
+    }
+
+    const defaultMem: UserFinancialMemory = {
       chatId: key,
       frequentCounterparties: [],
       frequentCategories: [],
@@ -72,6 +99,53 @@ export class MemoryService {
       customNotes: [],
       updatedAt: new Date().toISOString()
     };
+    this.longTermCache.set(key, defaultMem);
+    return defaultMem;
+  }
+
+  /**
+   * Persist user long-term memory to cache and Neon Postgres
+   */
+  private static async persistMemory(mem: UserFinancialMemory, db?: MongoDBClient): Promise<void> {
+    this.longTermCache.set(mem.chatId, mem);
+
+    if (db && db.neon.isConfigured) {
+      try {
+        const id = `mem_${mem.chatId}`;
+        await db.neon.query(
+          `INSERT INTO user_memories (
+            id, "chatId", "preferredAccount", "frequentCounterparties", "frequentCategories", "frequentMerchants", "customNotes", "updatedAt"
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          ON CONFLICT ("chatId") DO UPDATE SET
+            "preferredAccount" = EXCLUDED."preferredAccount",
+            "frequentCounterparties" = EXCLUDED."frequentCounterparties",
+            "frequentCategories" = EXCLUDED."frequentCategories",
+            "frequentMerchants" = EXCLUDED."frequentMerchants",
+            "customNotes" = EXCLUDED."customNotes",
+            "updatedAt" = EXCLUDED."updatedAt"`,
+          [
+            id,
+            mem.chatId,
+            mem.preferredAccount || null,
+            JSON.stringify(mem.frequentCounterparties),
+            JSON.stringify(mem.frequentCategories),
+            JSON.stringify(mem.frequentMerchants),
+            JSON.stringify(mem.customNotes),
+            mem.updatedAt
+          ]
+        );
+      } catch (err) {
+        console.error('[MemoryService persistMemory DB Persist Error]:', err);
+      }
+    }
+  }
+
+  /**
+   * Update long-term memory based on confirmed transactions
+   */
+  static async learnFromTransaction(chatId: string | number, tx: Partial<Transaction>, db?: MongoDBClient): Promise<void> {
+    const key = String(chatId);
+    let mem = await this.getUserMemory(key, db);
 
     // 1. Learn preferred account
     if (tx.account) {
@@ -100,37 +174,31 @@ export class MemoryService {
     }
 
     mem.updatedAt = new Date().toISOString();
-    this.longTermCache.set(key, mem);
+    await this.persistMemory(mem, db);
   }
 
   /**
    * Save a user account note or custom preference in long term memory
    */
-  static recordCustomNote(chatId: string | number, note: string): void {
+  static async recordCustomNote(chatId: string | number, note: string, db?: MongoDBClient): Promise<void> {
     const key = String(chatId);
-    let mem = this.longTermCache.get(key) || {
-      chatId: key,
-      frequentCounterparties: [],
-      frequentCategories: [],
-      frequentMerchants: [],
-      customNotes: [],
-      updatedAt: new Date().toISOString()
-    };
+    let mem = await this.getUserMemory(key, db);
+
     if (!mem.customNotes) mem.customNotes = [];
     if (!mem.customNotes.includes(note)) {
       mem.customNotes.push(note);
       if (mem.customNotes.length > 10) mem.customNotes.shift();
     }
     mem.updatedAt = new Date().toISOString();
-    this.longTermCache.set(key, mem);
+    await this.persistMemory(mem, db);
   }
 
   /**
    * Generate token-efficient structured memory prompt block for LLM
    */
-  static getStructuredMemoryContext(chatId: string | number): string {
+  static async getStructuredMemoryContext(chatId: string | number, db?: MongoDBClient): Promise<string> {
     const key = String(chatId);
-    const mem = this.longTermCache.get(key);
+    const mem = await this.getUserMemory(key, db);
     const shortHistory = this.getShortTermHistory(chatId);
 
     const parts: string[] = [];
@@ -159,22 +227,7 @@ export class MemoryService {
   /**
    * Set a custom note in user's long-term memory
    */
-  static addCustomNote(chatId: string | number, note: string): void {
-    const key = String(chatId);
-    let mem = this.longTermCache.get(key);
-    if (!mem) {
-      mem = {
-        chatId: key,
-        frequentCounterparties: [],
-        frequentCategories: [],
-        frequentMerchants: [],
-        customNotes: [],
-        updatedAt: new Date().toISOString()
-      };
-    }
-    if (!mem.customNotes.includes(note)) {
-      mem.customNotes.push(note);
-    }
-    this.longTermCache.set(key, mem);
+  static async addCustomNote(chatId: string | number, note: string, db?: MongoDBClient): Promise<void> {
+    await this.recordCustomNote(chatId, note, db);
   }
 }

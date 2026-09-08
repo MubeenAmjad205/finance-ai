@@ -12,6 +12,9 @@ export { AccountCommands, BudgetCommands, PersonCommands, UtilityCommands, Expor
 /**
  * Unified TelegramCommandHandler Facade.
  */
+import { FinancialHealthService } from '../services/financialHealthService';
+import { DigestService } from '../services/digestService';
+
 export class TelegramCommandHandler {
   static async handleStart(env: Env): Promise<string> {
     return UtilityCommands.handleStart(env);
@@ -79,5 +82,21 @@ export class TelegramCommandHandler {
 
   static async handleKameti(db: MongoDBClient, args: string): Promise<string> {
     return KametiCommands.handleKameti(db, args);
+  }
+
+  static async handleRunway(db: MongoDBClient): Promise<string> {
+    return FinancialHealthService.generateRunwayReport(db);
+  }
+
+  static async handleHealth(db: MongoDBClient): Promise<string> {
+    return FinancialHealthService.generateHealthScorecard(db);
+  }
+
+  static async handleDigest(db: MongoDBClient): Promise<string> {
+    return DigestService.generateDailyDigest(db);
+  }
+
+  static async handleRecap(db: MongoDBClient): Promise<string> {
+    return DigestService.generateWeeklyRecap(db);
   }
 }

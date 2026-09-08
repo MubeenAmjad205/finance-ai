@@ -80,6 +80,38 @@ export class ConversationStateManager {
   }
 
   /**
+   * Detect natural text corrections or cancellations
+   * E.g. "correction: it was 1500 not 2500", "actually via EasyPaisa", "galti se ho gaya cancel karo"
+   */
+  static detectCorrection(text: string): { isCorrection: boolean; isCancel?: boolean; newAmount?: number; newAccount?: string } {
+    const lower = text.toLowerCase().trim();
+
+    // Cancellation patterns
+    if (/\b(cancel|undo|galti se|galati|mistake|ignore last|delete last|revert)\b/i.test(lower)) {
+      return { isCorrection: true, isCancel: true };
+    }
+
+    // Correction patterns: "correction: ...", "actually ...", "it was ... not ..."
+    const isCorrectionExplicit = /\b(correction|actually|it was|wrong amount|wrong account|instead of|change to)\b/i.test(lower);
+    if (!isCorrectionExplicit) return { isCorrection: false };
+
+    // Extract new amount if present
+    const amountMatch = lower.match(/\b(\d+(?:,\d+)*(?:\.\d+)?)\b/);
+    const newAmount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : undefined;
+
+    // Extract new account if present
+    const accountMatch = lower.match(/\b(jazzcash|easypaisa|nayapay|sadapay|meezan|hbl|ubl|cash)\b/i);
+    const newAccount = accountMatch ? accountMatch[1] : undefined;
+
+    return {
+      isCorrection: true,
+      isCancel: false,
+      newAmount: newAmount && !isNaN(newAmount) ? newAmount : undefined,
+      newAccount
+    };
+  }
+
+  /**
    * Clear pending slot
    */
   static clear(chatId: number | string): void {

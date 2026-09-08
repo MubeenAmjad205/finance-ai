@@ -41,12 +41,12 @@ export class AIService {
     return VoiceTranscriptionService.transcribe(env, audioBuffer);
   }
 
-  static async parseTransactionText(env: Env, text: string): Promise<ParsedTransactionResult> {
-    return TransactionTextParser.parse(env, text);
+  static async parseTransactionText(env: Env, text: string, chatId?: string | number, db?: any): Promise<ParsedTransactionResult> {
+    return TransactionTextParser.parse(env, text, chatId, db);
   }
 
-  static async parseCompoundExpenses(env: Env, text: string): Promise<ParsedTransactionResult[]> {
-    return TransactionTextParser.parseCompoundExpenses(env, text);
+  static async parseCompoundExpenses(env: Env, text: string, chatId?: string | number, db?: any): Promise<ParsedTransactionResult[]> {
+    return TransactionTextParser.parseCompoundExpenses(env, text, chatId, db);
   }
 
   static async parseReceiptImage(env: Env, imageArrayBuffer: ArrayBuffer): Promise<ParsedTransactionResult | null> {

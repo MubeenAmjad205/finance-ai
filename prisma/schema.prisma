@@ -150,3 +150,17 @@ model WhitelistEntry {
   @@map("whitelist")
 }
 
+model UserMemory {
+  id                     String  @id @default(uuid())
+  chatId                 String  @unique
+  preferredAccount       String?
+  frequentCounterparties Json?   @default("[]")
+  frequentCategories    Json?   @default("[]")
+  frequentMerchants      Json?   @default("[]")
+  customNotes            Json?   @default("[]")
+  updatedAt              String?
+
+  @@map("user_memories")
+}
+
+

@@ -3,6 +3,9 @@ import { Env } from '../db/types';
 import { MongoDBClient } from '../db/mongodb';
 import { getUserCurrentMonth, DEFAULT_USER_TIMEZONE } from '../utils/timezone';
 
+import { FinancialHealthService } from '../services/financialHealthService';
+import { DigestService } from '../services/digestService';
+
 export const apiRoutes = new Hono<{ Bindings: Env }>();
 
 // 1. Health Check
@@ -13,6 +16,20 @@ apiRoutes.get('/health', (c) => {
     runtime: 'Cloudflare Workers AI',
     timestamp: new Date().toISOString()
   });
+});
+
+// Cron Endpoint for Daily Digest
+apiRoutes.get('/cron/daily-digest', async (c) => {
+  const db = new MongoDBClient(c.env);
+  const digest = await DigestService.generateDailyDigest(db);
+  return c.json({ status: 'ok', digest });
+});
+
+// Cron Endpoint for Weekly Recap
+apiRoutes.get('/cron/weekly-recap', async (c) => {
+  const db = new MongoDBClient(c.env);
+  const recap = await DigestService.generateWeeklyRecap(db);
+  return c.json({ status: 'ok', recap });
 });
 
 // 2. Monthly Stats
@@ -80,6 +97,10 @@ apiRoutes.get('/telegram/setup-webhook', async (c) => {
 
   const commandsUrl = `https://api.telegram.org/bot${token}/setMyCommands`;
   const commandsList = [
+    { command: 'runway', description: 'Check financial runway & daily burn rate' },
+    { command: 'health', description: 'View financial health scorecard' },
+    { command: 'digest', description: 'Generate morning financial glance' },
+    { command: 'recap', description: 'Generate weekly spending recap' },
     { command: 'summary', description: 'Monthly income, expenses & stats' },
     { command: 'accounts', description: 'View wallets & bank balances' },
     { command: 'setbalance', description: 'Set starting account balance' },
