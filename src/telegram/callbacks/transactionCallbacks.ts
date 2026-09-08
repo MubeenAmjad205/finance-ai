@@ -68,7 +68,7 @@ export class TransactionCallbacks {
 🏷️ **Category:** ${tx.category}
 ${tx.personName ? `👤 **Person Ledger:** ${tx.personName}\n` : ''}🕒 **Timestamp:** ${new Date(tx.timestamp).toLocaleString('en-PK')}
 
-*Record saved to MongoDB Atlas.*`;
+*Record saved to database.*`;
 
     await api.editMessage(chatId, messageId, confirmedText, { parse_mode: 'Markdown' });
   }

@@ -9,7 +9,7 @@ export class AccountCommands {
 
     if (!accounts || accounts.length === 0) {
       if (db.client.lastError) {
-        return `⚠️ **Database Connection Error:**\n──────────────────────\nCould not retrieve accounts from MongoDB Atlas.\n\n\`${db.client.lastError}\`\n\n💡 *Please check your MONGODB_APP_ID and MONGODB_DATA_API_KEY in Cloudflare Worker secrets.*`;
+        return `⚠️ **Database Connection Error:**\n──────────────────────\nCould not retrieve accounts from database.\n\n\`${db.client.lastError}\`\n\n💡 *Please check your DATABASE_URL in Cloudflare Worker secrets.*`;
       }
       text += `No active accounts registered yet.\n\n💡 *To add an account, use:* \`/setbalance <Account> <Amount>\`\n*Example:* \`/setbalance JazzCash 25000\``;
       return text;
@@ -87,7 +87,7 @@ export class AccountCommands {
 
     if (!fromUpdated || !toUpdated) {
       const errDetail = db.client.lastError || 'Database update error';
-      return `❌ **Database Error: Transfer Failed**\n──────────────────────\nCould not update account balances in MongoDB.\n⚠️ **Error:** \`${errDetail}\``;
+      return `❌ **Database Error: Transfer Failed**\n──────────────────────\nCould not update account balances in database.\n⚠️ **Error:** \`${errDetail}\``;
     }
 
     await db.createTransaction({
