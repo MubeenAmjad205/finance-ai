@@ -26,6 +26,7 @@ apiRoutes.post('/sms/webhook', async (c) => {
     const body: any = await c.req.json();
     const smsSender = body.sender || body.from || 'Bank SMS';
     const smsText = body.body || body.text || body.message || '';
+    const targetChatId = body.chat_id || body.telegram_user_id || c.env.TELEGRAM_CHAT_ID;
 
     const parsed = SmsParserService.parseSms(smsSender, smsText);
     if (!parsed) {
@@ -34,7 +35,7 @@ apiRoutes.post('/sms/webhook', async (c) => {
 
     const db = new MongoDBClient(c.env);
     await db.createTransaction({
-      telegramUserId: c.env.TELEGRAM_CHAT_ID ? Number(c.env.TELEGRAM_CHAT_ID) : undefined,
+      telegramUserId: targetChatId ? Number(targetChatId) : undefined,
       type: parsed.type,
       amount: parsed.amount,
       currency: 'PKR',
@@ -50,9 +51,9 @@ apiRoutes.post('/sms/webhook', async (c) => {
     const delta = parsed.type === 'income' ? parsed.amount : -parsed.amount;
     await db.updateAccountBalance(parsed.account, delta);
 
-    if (c.env.TELEGRAM_BOT_TOKEN && c.env.TELEGRAM_CHAT_ID) {
+    if (c.env.TELEGRAM_BOT_TOKEN && targetChatId) {
       const msg = `📲 **Bank SMS Alert Auto-Logged!**\n──────────────────────\n💰 **Amount:** ${parsed.amount.toLocaleString()} PKR (${parsed.type.toUpperCase()})\n🏦 **Account:** ${parsed.account}\n🏷️ **Category:** ${parsed.category}\n📝 **Details:** "${parsed.note}"\n\n💾 *Saved to database & account balance updated!*`;
-      await TelegramApiClient.sendMessage(c.env.TELEGRAM_BOT_TOKEN, c.env.TELEGRAM_CHAT_ID, msg, { parse_mode: 'Markdown' });
+      await TelegramApiClient.sendMessage(c.env.TELEGRAM_BOT_TOKEN, targetChatId.toString(), msg, { parse_mode: 'Markdown' });
     }
 
     return c.json({ status: 'success', parsed });
@@ -68,6 +69,7 @@ apiRoutes.post('/email/webhook', async (c) => {
     const from = body.from || 'Bank Email';
     const subject = body.subject || '';
     const emailBody = body.body || body.text || '';
+    const targetChatId = body.chat_id || body.telegram_user_id || c.env.TELEGRAM_CHAT_ID;
 
     const parsed = EmailParserService.parseEmail(from, subject, emailBody);
     if (!parsed) {
@@ -76,7 +78,7 @@ apiRoutes.post('/email/webhook', async (c) => {
 
     const db = new MongoDBClient(c.env);
     await db.createTransaction({
-      telegramUserId: c.env.TELEGRAM_CHAT_ID ? Number(c.env.TELEGRAM_CHAT_ID) : undefined,
+      telegramUserId: targetChatId ? Number(targetChatId) : undefined,
       type: parsed.type,
       amount: parsed.amount,
       currency: 'PKR',
@@ -92,9 +94,9 @@ apiRoutes.post('/email/webhook', async (c) => {
     const delta = parsed.type === 'income' ? parsed.amount : -parsed.amount;
     await db.updateAccountBalance(parsed.account, delta);
 
-    if (c.env.TELEGRAM_BOT_TOKEN && c.env.TELEGRAM_CHAT_ID) {
+    if (c.env.TELEGRAM_BOT_TOKEN && targetChatId) {
       const msg = `✉️ **Bank Email Alert Auto-Logged!**\n──────────────────────\n💰 **Amount:** ${parsed.amount.toLocaleString()} PKR (${parsed.type.toUpperCase()})\n🏦 **Account:** ${parsed.account}\n🏷️ **Category:** ${parsed.category}\n📝 **Details:** "${parsed.note}"\n\n💾 *Saved to database & account balance updated!*`;
-      await TelegramApiClient.sendMessage(c.env.TELEGRAM_BOT_TOKEN, c.env.TELEGRAM_CHAT_ID, msg, { parse_mode: 'Markdown' });
+      await TelegramApiClient.sendMessage(c.env.TELEGRAM_BOT_TOKEN, targetChatId.toString(), msg, { parse_mode: 'Markdown' });
     }
 
     return c.json({ status: 'success', parsed });

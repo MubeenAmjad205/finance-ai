@@ -16,7 +16,7 @@ export class SmsParserService {
     // 1. Detect Account / Bank Name
     let account = 'Cash';
     if (lowerSender.includes('ubl') || lowerBody.includes('ubl')) account = 'UBL';
-    else if (lowerSender.includes('askari') || lowerBody.includes('askari')) account = 'Askari Bank';
+    else if (lowerSender.includes('askari') || lowerSender.includes('8870') || lowerBody.includes('askari') || lowerBody.includes('akbl')) account = 'Askari Bank';
     else if (lowerSender.includes('mashreq') || lowerBody.includes('mashreq')) account = 'Mashreq Neo';
     else if (lowerSender.includes('jazzcash') || lowerBody.includes('jazzcash')) account = 'JazzCash';
     else if (lowerSender.includes('easypaisa') || lowerBody.includes('easypaisa')) account = 'EasyPaisa';
@@ -29,8 +29,8 @@ export class SmsParserService {
 
     // 2. Detect Transaction Type
     let type: 'expense' | 'income' | 'transfer' = 'expense';
-    const isIncome = /\b(credited|received|deposit|deposited|inflow|salary|cashback|refund)\b/i.test(lowerBody);
-    const isExpense = /\b(debited|spent|paid|purchase|processed|transfer to|transferred to)\b/i.test(lowerBody);
+    const isIncome = /\b(credited|received|received from|deposit|deposited|inflow|salary|cashback|refund)\b/i.test(lowerBody);
+    const isExpense = /\b(debited|spent|paid|purchase|processed|sent|sent to|transfer to|transferred to)\b/i.test(lowerBody);
 
     if (isIncome && !isExpense) {
       type = 'income';
