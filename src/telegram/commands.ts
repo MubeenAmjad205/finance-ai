@@ -6,15 +6,15 @@ import { PersonCommands } from './commands/personCommands';
 import { UtilityCommands } from './commands/utilityCommands';
 import { ExportCommands } from './commands/exportCommand';
 import { KametiCommands } from './commands/kametiCommands';
+import { FinancialHealthService } from '../services/financialHealthService';
+import { DigestService } from '../services/digestService';
+import { CashflowProjectionService } from '../services/cashflowProjection';
 
 export { AccountCommands, BudgetCommands, PersonCommands, UtilityCommands, ExportCommands, KametiCommands };
 
 /**
  * Unified TelegramCommandHandler Facade.
  */
-import { FinancialHealthService } from '../services/financialHealthService';
-import { DigestService } from '../services/digestService';
-
 export class TelegramCommandHandler {
   static async handleStart(env: Env): Promise<string> {
     return UtilityCommands.handleStart(env);
@@ -98,5 +98,9 @@ export class TelegramCommandHandler {
 
   static async handleRecap(db: MongoDBClient): Promise<string> {
     return DigestService.generateWeeklyRecap(db);
+  }
+
+  static async handleProjection(db: MongoDBClient): Promise<string> {
+    return CashflowProjectionService.generateProjectionReport(db);
   }
 }

@@ -41,8 +41,9 @@ export function renderDashboardHtml(
           <p style="font-size: 0.8rem; color: var(--text-muted);">Cloudflare Workers AI • Real-Time Finance</p>
         </div>
       </div>
-      <div class="month-badge">
-        📅 ${escapeHtml(monthName)}
+      <div class="month-badge" style="display: flex; gap: 0.5rem; align-items: center;">
+        <span>📅 ${escapeHtml(monthName)}</span>
+        <a href="/api/export/pdf" target="_blank" style="background: rgba(59,130,246,0.2); color: #60a5fa; text-decoration: none; padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600;">📄 Download Statement</a>
       </div>
     </header>
 

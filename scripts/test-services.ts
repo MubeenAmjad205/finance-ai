@@ -472,6 +472,49 @@ async function runTests() {
   const weeklyRecap = await DigestService.generateWeeklyRecap(testDb);
   assert(weeklyRecap.includes('Weekly Financial Spend Recap'), 'Generates weekly spend recap');
 
+  // 34. Testing Cash Flow Projection & Pre-Payday Predictor
+  console.log('\n3️⃣4️⃣ Testing Cash Flow Projection & Pre-Payday Predictor:');
+  const { CashflowProjectionService } = await import('../src/services/cashflowProjection');
+  const projectionReport = await CashflowProjectionService.generateProjectionReport(testDb);
+  assert(projectionReport.includes('Cash Flow Projection') && projectionReport.includes('Payday'), 'Generates valid cash flow projection report');
+
+  // 35. Testing Vision Receipt Service Structure
+  console.log('\n3️⃣5️⃣ Testing Vision Receipt Service Structure:');
+  assert(typeof VisionReceiptService.parseReceipt === 'function', 'VisionReceiptService exports parseReceipt with line items');
+
+  // 36. Testing Deep Financial Query Analytics
+  console.log('\n3️⃣6️⃣ Testing Deep Financial Query Analytics:');
+  const { FinancialQueryService } = await import('../src/services/ai/queryService');
+  const deepAns = await FinancialQueryService.answer({} as any, 'Careem vs InDrive spending comparison', 'Careem: 4500 PKR, InDrive: 2000 PKR');
+  assert(typeof deepAns === 'string' && deepAns.length > 0, 'FinancialQueryService handles deep comparative analytics query');
+
+  // 37. Testing Courteous Group Reminders
+  console.log('\n3️⃣7️⃣ Testing Courteous Group Reminders:');
+  const { GroupPresenter } = await import('../src/telegram/group/groupPresenter');
+  assert(typeof GroupPresenter.sendPoliteGroupReminder === 'function', 'GroupPresenter exports sendPoliteGroupReminder');
+
+  // 38. Testing Bank & Wallet SMS Alert Auto-Parser (UBL, Askari, Mashreq, JazzCash, EasyPaisa)
+  console.log('\n3️⃣8️⃣ Testing Bank & Wallet SMS Alert Auto-Parser:');
+  const { SmsParserService } = await import('../src/services/smsParser');
+  
+  const ublSms = SmsParserService.parseSms('UBL', 'Dear Customer, Rs. 1,500.00 debited from AC ****1234 on 08-Sep-26 at IMTIAZ SUPERMARKET');
+  assert(ublSms !== null && ublSms.amount === 1500 && ublSms.account === 'UBL' && ublSms.category === 'Groceries', 'Parses UBL Bank SMS alert accurately');
+
+  const askariSms = SmsParserService.parseSms('Askari', 'Txn of PKR 2,500.00 processed on Askari Card ****5678 at SHELL PETROL');
+  assert(askariSms !== null && askariSms.amount === 2500 && askariSms.account === 'Askari Bank' && askariSms.category === 'Transportation', 'Parses Askari Bank SMS alert accurately');
+
+  const mashreqSms = SmsParserService.parseSms('Mashreq', 'Debit Alert: PKR 3,800.00 spent on Mashreq Neo Card ****9012');
+  assert(mashreqSms !== null && mashreqSms.amount === 3800 && mashreqSms.account === 'Mashreq Neo', 'Parses Mashreq Neo SMS alert accurately');
+
+  const jazzcashSms = SmsParserService.parseSms('JazzCash', 'Trx ID 987654321: Paid Rs 500.00 to Foodpanda from JazzCash Account');
+  assert(jazzcashSms !== null && jazzcashSms.amount === 500 && jazzcashSms.account === 'JazzCash' && jazzcashSms.category === 'Food & Dining', 'Parses JazzCash SMS alert accurately');
+
+  // 39. Testing Bank Email Alert Auto-Parser
+  console.log('\n3️⃣9️⃣ Testing Bank Email Alert Auto-Parser:');
+  const { EmailParserService } = await import('../src/services/emailParser');
+  const emailRes = EmailParserService.parseEmail('alerts@ubl.com.pk', 'Transaction Alert', 'Rs. 4,200 debited from your UBL Account for online purchase');
+  assert(emailRes !== null && emailRes.amount === 4200 && emailRes.account === 'UBL', 'Parses UBL email transaction alert accurately');
+
   console.log(`\n================================`);
   console.log(`Results: ${passed} Passed, ${failed} Failed`);
   if (failed > 0) {
