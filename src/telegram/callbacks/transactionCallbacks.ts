@@ -58,7 +58,7 @@ export class TransactionCallbacks {
     }
 
     // Update AI Long-Term Memory
-    await MemoryService.learnFromTransaction(chatId, tx);
+    await MemoryService.learnFromTransaction(chatId, tx, db);
 
     await api.answerCallback(callbackId, '✅ Transaction saved successfully!');
     const confirmedText = `✅ **Transaction Confirmed & Recorded!**

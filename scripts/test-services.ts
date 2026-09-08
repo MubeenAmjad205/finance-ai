@@ -326,7 +326,7 @@ async function runTests() {
     category: 'Groceries',
     note: 'Imtiaz Super Market'
   });
-  const promptMemory = MemoryService.getStructuredMemoryContext(testChatId);
+  const promptMemory = await MemoryService.getStructuredMemoryContext(testChatId);
   assert(promptMemory.includes('EasyPaisa'), 'Long-term memory learns preferred account');
   assert(promptMemory.includes('Hamza Tariq'), 'Long-term memory learns frequent counterparty');
   assert(promptMemory.includes('Imtiaz Super Market'), 'Long-term memory learns frequent merchant');
@@ -425,6 +425,52 @@ async function runTests() {
   TelegramApiClient.sendMessage = origSend;
   TelegramApiClient.downloadFile = origDownload;
   assert(typeof VoiceHandler.handleVoiceNote === 'function', 'VoiceHandler exports handleVoiceNote with callback delegation');
+
+  // 29. Testing Vernacular & Slang Number Normalization
+  console.log('\n2️⃣9️⃣ Testing Vernacular & Slang Number Normalization:');
+  const { NumberNormalizer } = await import('../src/utils/numberNormalizer');
+  assert(NumberNormalizer.parseVernacularAmount('1.5 hazar') === 1500, 'Parses 1.5 hazar as 1500 PKR');
+  assert(NumberNormalizer.parseVernacularAmount('2.5 lakh') === 250000, 'Parses 2.5 lakh as 250,000 PKR');
+  assert(NumberNormalizer.parseVernacularAmount('10k') === 10000, 'Parses 10k as 10,000 PKR');
+  assert(NumberNormalizer.parseVernacularAmount('1 lac') === 100000, 'Parses 1 lac as 100,000 PKR');
+
+  // 30. Testing Merchant & Utility Auto-Tagging Registry
+  console.log('\n3️⃣0️⃣ Testing Merchant & Utility Auto-Tagging Registry:');
+  const { MerchantRegistry } = await import('../src/services/merchantRegistry');
+  const imtiaz = MerchantRegistry.detectMerchant('Bought items at Imtiaz Super Market');
+  assert(imtiaz?.category === 'Groceries', 'Auto-classifies Imtiaz as Groceries');
+
+  const ke = MerchantRegistry.detectMerchant('Paid K-Electric bill');
+  assert(ke?.category === 'Bills & Utilities', 'Auto-classifies K-Electric as Bills & Utilities');
+
+  const careem = MerchantRegistry.detectMerchant('Rode Careem captain');
+  assert(careem?.category === 'Transportation', 'Auto-classifies Careem as Transportation');
+
+  // 31. Testing Financial Health & Runway Calculation Engine
+  console.log('\n3️⃣1️⃣ Testing Financial Health & Runway Calculation Engine:');
+  const { FinancialHealthService } = await import('../src/services/financialHealthService');
+  const healthReport = await FinancialHealthService.generateHealthScorecard(testDb);
+  assert(healthReport.includes('Financial Health Scorecard') && healthReport.includes('Health Score'), 'Generates valid health scorecard');
+
+  const runwayReport = await FinancialHealthService.generateRunwayReport(testDb);
+  assert(runwayReport.includes('Financial Runway') && runwayReport.includes('Estimated Runway'), 'Generates valid runway report');
+
+  // 32. Testing Natural Text Corrections & Cancellations
+  console.log('\n3️⃣2️⃣ Testing Natural Text Corrections & Cancellations:');
+  const cancelCheck = ConversationStateManager.detectCorrection('Galti se ho gaya cancel karo');
+  assert(cancelCheck.isCorrection && cancelCheck.isCancel, 'Identifies natural text cancellation request');
+
+  const amountCorrection = ConversationStateManager.detectCorrection('Correction: actually it was 1500');
+  assert(amountCorrection.isCorrection && amountCorrection.newAmount === 1500, 'Identifies amount correction in text');
+
+  // 33. Testing Daily Morning Glance & Weekly Digest Generation
+  console.log('\n3️⃣3️⃣ Testing Daily Morning Glance & Weekly Digest Generation:');
+  const { DigestService } = await import('../src/services/digestService');
+  const dailyDigest = await DigestService.generateDailyDigest(testDb);
+  assert(dailyDigest.includes('Good Morning') && dailyDigest.includes('Total Liquid Capital'), 'Generates morning daily digest');
+
+  const weeklyRecap = await DigestService.generateWeeklyRecap(testDb);
+  assert(weeklyRecap.includes('Weekly Financial Spend Recap'), 'Generates weekly spend recap');
 
   console.log(`\n================================`);
   console.log(`Results: ${passed} Passed, ${failed} Failed`);

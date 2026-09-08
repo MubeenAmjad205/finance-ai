@@ -23,10 +23,16 @@ export interface ParsedTransactionResult {
 
 export const HIGH_VALUE_THRESHOLD_PKR = 50000;
 
+import { MemoryService } from './memoryService';
+import { NumberNormalizer } from '../../utils/numberNormalizer';
+import { MerchantRegistry } from '../merchantRegistry';
+
 export class TransactionTextParser {
-  static async parse(env: Env, text: string): Promise<ParsedTransactionResult> {
-    const { sanitizedText } = PromptGuard.sanitize(text);
+  static async parse(env: Env, text: string, chatId?: string | number, db?: any): Promise<ParsedTransactionResult> {
+    const normalizedText = NumberNormalizer.normalizeTextAmounts(text);
+    const { sanitizedText } = PromptGuard.sanitize(normalizedText);
     const temporal = TemporalResolver.getCurrentContext();
+    const memoryCtx = chatId ? await MemoryService.getStructuredMemoryContext(chatId, db) : '';
 
     const systemPrompt = `You are an expert financial assistant for Pakistani personal expense tracking.
 Convert unstructured financial messages (English, Urdu, Roman Urdu) into structured JSON.
@@ -63,7 +69,7 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
   "confidence": 0.95
 }`;
 
-    const userPrompt = `User message: "${sanitizedText}"\nExtract details into JSON:`;
+    const userPrompt = `${memoryCtx ? memoryCtx + '\n\n' : ''}User message: "${sanitizedText}"\nExtract details into JSON:`;
 
     try {
       if (env.AI && typeof (env.AI as any).run === 'function') {
@@ -98,7 +104,7 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
    * Parse single or compound multi-expense messages
    * E.g. "Spent 500 on lunch and 300 on rickshaw" -> 2 separate transactions
    */
-  static async parseCompoundExpenses(env: Env, text: string): Promise<ParsedTransactionResult[]> {
+  static async parseCompoundExpenses(env: Env, text: string, chatId?: string | number, db?: any): Promise<ParsedTransactionResult[]> {
     const clauses = text.split(/\s+(?:and|aur|\+)\s+|\n+/i).map(c => c.trim()).filter(c => c.length > 0);
     
     // Check if multiple clauses each contain an amount
@@ -108,13 +114,13 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
       for (const clause of financialClauses) {
         const hasAccount = /jazzcash|easypaisa|nayapay|sadapay|meezan|hbl|cash/i.test(clause);
         const effectiveClause = hasAccount ? clause : `${clause} via ${this.detectAccountFromText(text)}`;
-        const parsed = await this.parse(env, effectiveClause);
+        const parsed = await this.parse(env, effectiveClause, chatId, db);
         results.push(parsed);
       }
       return results;
     }
 
-    const single = await this.parse(env, text);
+    const single = await this.parse(env, text, chatId, db);
     return [single];
   }
 
@@ -169,6 +175,10 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
     const sanitizedNote = PiiFilter.redact(parsed.note || rawText).redactedText;
     const isHighValue = amountInPkr >= HIGH_VALUE_THRESHOLD_PKR;
 
+    const detectedMerchant = MerchantRegistry.detectMerchant(rawText);
+    const finalCategory = detectedMerchant ? detectedMerchant.category : (parsed.category || (type === 'income' ? 'Salary' : 'General'));
+    const finalAccount = parsed.account || (detectedMerchant?.suggestedAccount ? detectedMerchant.suggestedAccount : this.detectAccountFromText(rawText));
+
     return {
       type,
       amount: amountInPkr,
@@ -176,8 +186,8 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
       originalCurrency: origCurrency !== 'PKR' ? origCurrency : undefined,
       exchangeRate: origCurrency !== 'PKR' ? rate : undefined,
       currency: 'PKR',
-      category: parsed.category || (type === 'income' ? 'Salary' : 'General'),
-      account: parsed.account || this.detectAccountFromText(rawText),
+      category: finalCategory,
+      account: finalAccount,
       personName: parsed.personName && parsed.personName !== 'null' ? parsed.personName : undefined,
       note: sanitizedNote,
       tags: Array.isArray(parsed.tags) ? parsed.tags : undefined,
@@ -186,21 +196,24 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
     };
   }
 
-  private static heuristicParse(text: string): ParsedTransactionResult {
+  private static heuristicParse(rawInputText: string): ParsedTransactionResult {
+    const text = NumberNormalizer.normalizeTextAmounts(rawInputText);
     const lower = text.toLowerCase();
     const currency = CurrencyService.detectCurrency(text);
 
     // Strip Pakistani phone numbers before extracting transaction amount
     const textWithoutPhone = text.replace(/(?:\+92|0092|92|0)?3\d{2}[-\s]?\d{7}\b/g, '');
 
-    // Extract amount
-    const amountMatch = textWithoutPhone.match(/(?:rs\.?|pkr|usd|\$|€|£|aed|sar|amount)?\s*(\d+(?:,\d+)*(?:\.\d+)?)/i);
-    let rawAmount = 0;
-    if (amountMatch) {
-      const candidate = parseFloat(amountMatch[1].replace(/,/g, ''));
-      const digitsOnly = amountMatch[1].replace(/\D/g, '');
-      if (!(digitsOnly.length >= 10 && (digitsOnly.startsWith('03') || digitsOnly.startsWith('923')))) {
-        rawAmount = candidate;
+    // Extract amount using NumberNormalizer or regex
+    let rawAmount = NumberNormalizer.parseVernacularAmount(textWithoutPhone) || 0;
+    if (!rawAmount) {
+      const amountMatch = textWithoutPhone.match(/(?:rs\.?|pkr|usd|\$|€|£|aed|sar|amount)?\s*(\d+(?:,\d+)*(?:\.\d+)?)/i);
+      if (amountMatch) {
+        const candidate = parseFloat(amountMatch[1].replace(/,/g, ''));
+        const digitsOnly = amountMatch[1].replace(/\D/g, '');
+        if (!(digitsOnly.length >= 10 && (digitsOnly.startsWith('03') || digitsOnly.startsWith('923')))) {
+          rawAmount = candidate;
+        }
       }
     }
 
@@ -229,6 +242,11 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
       personName = personMatch[1];
     }
 
+    const detectedMerchant = MerchantRegistry.detectMerchant(text);
+    const defaultCategory = lower.includes('food') || lower.includes('lunch') || lower.includes('dinner') ? 'Food & Dining' : 'General';
+    const finalCategory = detectedMerchant ? detectedMerchant.category : defaultCategory;
+    const finalAccount = detectedMerchant?.suggestedAccount || this.detectAccountFromText(text);
+
     const sanitizedNote = PiiFilter.redact(text).redactedText;
     const finalAmount = amountInPkr || 100;
     const isHighValue = finalAmount >= HIGH_VALUE_THRESHOLD_PKR;
@@ -240,8 +258,8 @@ Response Format (STRICT JSON ONLY, no markdown, no conversational text):
       originalCurrency: currency !== 'PKR' ? currency : undefined,
       exchangeRate: currency !== 'PKR' ? rate : undefined,
       currency: 'PKR',
-      category: lower.includes('food') || lower.includes('lunch') || lower.includes('dinner') ? 'Food & Dining' : 'General',
-      account: this.detectAccountFromText(text),
+      category: finalCategory,
+      account: finalAccount,
       personName,
       note: sanitizedNote,
       confidence: 0.75,

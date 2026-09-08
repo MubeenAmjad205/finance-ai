@@ -200,6 +200,14 @@ export class TelegramBotHandler {
       responseText = await TelegramCommandHandler.handleKameti(this.db, args);
     } else if (command === '/query') {
       responseText = await TelegramCommandHandler.handleQuery(this.env, this.db, args);
+    } else if (command === '/runway') {
+      responseText = await TelegramCommandHandler.handleRunway(this.db);
+    } else if (command === '/health') {
+      responseText = await TelegramCommandHandler.handleHealth(this.db);
+    } else if (command === '/digest') {
+      responseText = await TelegramCommandHandler.handleDigest(this.db);
+    } else if (command === '/recap') {
+      responseText = await TelegramCommandHandler.handleRecap(this.db);
     } else if (command === '/whitelist') {
       responseText = await WhitelistCommands.handlePersonalWhitelist(this.db, this.env, args, fromId || chatId, senderName);
     } else {
@@ -210,6 +218,15 @@ export class TelegramBotHandler {
   }
 
   private async handleTextMessage(chatId: number, text: string, messageId: number): Promise<void> {
+    const correction = ConversationStateManager.detectCorrection(text);
+    if (correction.isCorrection) {
+      if (correction.isCancel) {
+        const undoMsg = await TelegramCommandHandler.handleUndo(this.db);
+        await TelegramApiClient.sendMessage(this.botToken, chatId, `↩️ **Natural Text Correction Executed:**\n\n${undoMsg}`, { parse_mode: 'Markdown' });
+        return;
+      }
+    }
+
     const resolvedFollowUp = ConversationStateManager.resolveFollowUp(chatId, text);
     const effectiveText = resolvedFollowUp || text;
 
@@ -234,7 +251,7 @@ export class TelegramBotHandler {
             updatedAt: new Date().toISOString()
           });
         }
-        MemoryService.addCustomNote(chatId, `${detectedInst.name} Account: ${accNum}`);
+        MemoryService.addCustomNote(chatId, `${detectedInst.name} Account: ${accNum}`, this.db);
 
         const confirmationMsg = `🏦 **${detectedInst.name} Account Saved!**\n──────────────────────\n` +
           `📱 **Account Number:** \`${accNum}\`\n` +
@@ -243,6 +260,7 @@ export class TelegramBotHandler {
           `To set your starting balance, type:\n\`/setbalance ${detectedInst.name} <amount>\``;
 
         await TelegramApiClient.sendMessage(this.botToken, chatId, confirmationMsg, { parse_mode: 'Markdown' });
+        MemoryService.recordTurn(chatId, 'assistant', confirmationMsg);
         return;
       }
     }
@@ -263,6 +281,7 @@ export class TelegramBotHandler {
         if (!isNaN(amount) && amount >= 0) {
           const responseText = await TelegramCommandHandler.handleSetBalance(this.db, `${detectedInst.name} ${amount}`);
           await TelegramApiClient.sendMessage(this.botToken, chatId, responseText, { parse_mode: 'Markdown' });
+          MemoryService.recordTurn(chatId, 'assistant', responseText);
           return;
         }
       }
@@ -273,6 +292,7 @@ export class TelegramBotHandler {
     if (intent === 'chat') {
       const greeting = await AIService.generateChatResponse(this.env, effectiveText);
       await TelegramApiClient.sendMessage(this.botToken, chatId, greeting, { parse_mode: 'Markdown' });
+      MemoryService.recordTurn(chatId, 'assistant', greeting);
       return;
     }
 
@@ -284,7 +304,7 @@ export class TelegramBotHandler {
         this.db.getAllAccounts(),
         this.db.getAllPersons()
       ]);
-      const memoryCtx = MemoryService.getStructuredMemoryContext(chatId);
+      const memoryCtx = await MemoryService.getStructuredMemoryContext(chatId, this.db);
       
       const accountsSummary = accounts.length > 0
         ? accounts.map(a => `• ${a.name}: ${a.balance.toLocaleString()} ${a.currency || 'PKR'}`).join('\n')
@@ -295,6 +315,7 @@ export class TelegramBotHandler {
 
       const answer = await AIService.answerFinancialQuery(this.env, effectiveText, context);
       await TelegramApiClient.sendMessage(this.botToken, chatId, answer, { parse_mode: 'Markdown' });
+      MemoryService.recordTurn(chatId, 'assistant', answer);
       return;
     }
 
@@ -306,16 +327,18 @@ export class TelegramBotHandler {
         ? (isUrdu ? `🤔 Yeh kharcha kitne rupay ka tha? (e.g. *1500* bhej dein)` : `🤔 How much was this expense? (e.g. reply with *1500*)`)
         : (isUrdu ? `🤔 Yeh kharcha kis cheez ka tha aur kis account se? (e.g. *\"Groceries via JazzCash\"*)` : `🤔 What was this spent on and via which account?`);
       await TelegramApiClient.sendMessage(this.botToken, chatId, prompt, { parse_mode: 'Markdown' });
+      MemoryService.recordTurn(chatId, 'assistant', prompt);
       return;
     }
 
-    const compoundItems = await AIService.parseCompoundExpenses(this.env, effectiveText);
+    const compoundItems = await AIService.parseCompoundExpenses(this.env, effectiveText, chatId, this.db);
     if (compoundItems.length > 1) {
       for (const item of compoundItems) {
-        const parsedItem = await AIService.parseTransactionText(this.env, `${item.note} ${item.amount}`);
+        const parsedItem = await AIService.parseTransactionText(this.env, `${item.note} ${item.amount}`, chatId, this.db);
         if (parsedItem.type === 'set_balance') {
           const responseText = await TelegramCommandHandler.handleSetBalance(this.db, `${parsedItem.account} ${parsedItem.amount}`);
           await TelegramApiClient.sendMessage(this.botToken, chatId, responseText, { parse_mode: 'Markdown' });
+          MemoryService.recordTurn(chatId, 'assistant', responseText);
           return;
         }
         await TxPresenter.presentTransactionConfirmation(this.botToken, this.db, chatId, parsedItem, `${item.note} ${item.amount}`, messageId);
@@ -323,10 +346,11 @@ export class TelegramBotHandler {
       return;
     }
 
-    const parsedResult = await AIService.parseTransactionText(this.env, effectiveText);
+    const parsedResult = await AIService.parseTransactionText(this.env, effectiveText, chatId, this.db);
     if (parsedResult.type === 'set_balance') {
       const responseText = await TelegramCommandHandler.handleSetBalance(this.db, `${parsedResult.account} ${parsedResult.amount}`);
       await TelegramApiClient.sendMessage(this.botToken, chatId, responseText, { parse_mode: 'Markdown' });
+      MemoryService.recordTurn(chatId, 'assistant', responseText);
       return;
     }
     const budgetWarning = await BudgetAlertService.checkSingleTransactionPacing(this.db, parsedResult.category, parsedResult.amount);

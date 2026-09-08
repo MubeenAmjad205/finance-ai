@@ -149,6 +149,17 @@ export class NeonPostgresClient {
           "evidenceHash" TEXT,
           "createdAt" TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS user_memories (
+          id TEXT PRIMARY KEY,
+          "chatId" TEXT UNIQUE NOT NULL,
+          "preferredAccount" TEXT,
+          "frequentCounterparties" JSONB DEFAULT '[]'::jsonb,
+          "frequentCategories" JSONB DEFAULT '[]'::jsonb,
+          "frequentMerchants" JSONB DEFAULT '[]'::jsonb,
+          "customNotes" JSONB DEFAULT '[]'::jsonb,
+          "updatedAt" TEXT
+        );
       `);
     } catch (err: any) {
       console.warn('[Neon Schema Auto-Migration Warning]:', err.message || err);

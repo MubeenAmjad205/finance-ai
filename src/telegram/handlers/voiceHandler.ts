@@ -50,13 +50,13 @@ export class VoiceHandler {
         if (intent === 'question') {
           const currentMonth = new Date().toISOString().substring(0, 7);
           const stats = await db.getMonthlyStats(currentMonth);
-          const memoryCtx = MemoryService.getStructuredMemoryContext(chatId);
+          const memoryCtx = await MemoryService.getStructuredMemoryContext(chatId, db);
           const answer = await AIService.answerFinancialQuery(env, transcribedText, `${JSON.stringify(stats)}\n\n${memoryCtx}`);
           await TelegramApiClient.sendMessage(botToken, chatId, answer, { parse_mode: 'Markdown' });
           return;
         }
 
-        const parsedResult = await AIService.parseTransactionText(env, transcribedText);
+        const parsedResult = await AIService.parseTransactionText(env, transcribedText, chatId, db);
         await TxPresenter.presentTransactionConfirmation(botToken, db, chatId, parsedResult, transcribedText, msg.message_id, true, transcribedText);
         return;
       }
