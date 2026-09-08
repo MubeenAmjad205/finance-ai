@@ -15,7 +15,7 @@
 - 👥 **Smart Person & Multi-Account Merging**: Auto-resolves counterparties (e.g. "Ali K" vs "Ali Khan"). Uses interactive **Telegram Inline Buttons** for human approval before merging records or balances.
 - ⏰ **Automated Daily Digest Crons**: Cloudflare Worker scheduled triggers send daily morning balance pings (8:00 AM PKT) and bill due warnings to Telegram.
 - 📱 **Telegram Mini App (TWA) & React Dashboard**: Built with React 18, Vite, Lucide icons, and Telegram WebApp SDK (`frontend/`). Includes CSV export, category breakdown, and person ledgers.
-- 🗄️ **MongoDB Atlas Data API**: Uses MongoDB Atlas Data API over standard fetch — zero cold starts, zero socket connection pooling issues.
+- 🗄️ **Neon Postgres**: Serverless PostgreSQL database using `@neondatabase/serverless` — zero cold starts, ultra-fast HTTP SQL query execution natively on Cloudflare Workers.
 
 ---
 
@@ -25,7 +25,7 @@
 - [Node.js](https://nodejs.org/) v18+ & npm
 - A [Cloudflare Account](https://dash.cloudflare.com/) (Free tier)
 - A [Telegram Account](https://telegram.org/)
-- A [MongoDB Atlas Account](https://www.mongodb.com/cloud/atlas) (Free M0 cluster)
+- A [Neon Postgres Account](https://neon.tech/) (Free tier)
 
 ---
 
@@ -47,10 +47,10 @@ cd frontend && npm install && npm run build && cd ..
 
 ---
 
-### 4. Configure MongoDB Atlas Data API
-1. Log in to [MongoDB Atlas](https://cloud.mongodb.com/).
-2. Navigate to **App Services** -> **Data API** and click **Enable Data API**.
-3. Generate a **Data API Key** and copy your **App ID** & **Data Source Cluster Name** (`Cluster0`).
+### 4. Configure Neon Postgres
+1. Log in to [Neon Console](https://console.neon.tech/).
+2. Create a project and database (`neondb`).
+3. Copy your connection string `DATABASE_URL` (`postgresql://user:pass@ep-xyz.eastus2.azure.neon.tech/neondb?sslmode=require`).
 
 ---
 
@@ -61,9 +61,7 @@ Run the following commands to configure production secrets:
 npx wrangler secret put TELEGRAM_BOT_TOKEN
 npx wrangler secret put TELEGRAM_SECRET_TOKEN
 npx wrangler secret put TELEGRAM_CHAT_ID
-npx wrangler secret put MONGODB_DATA_API_KEY
-npx wrangler secret put MONGODB_APP_ID
-npx wrangler secret put MONGODB_DATABASE
+npx wrangler secret put DATABASE_URL
 npx wrangler secret put DASHBOARD_PASSCODE
 ```
 
@@ -120,7 +118,7 @@ Your bot will respond with `{"success": true}` and start receiving messages inst
 - **Router**: Hono
 - **AI Models**: Cloudflare Workers AI (`@cf/meta/llama-3.1-8b-instruct`, `@cf/meta/llama-3.2-11b-vision-instruct`, `@cf/openai/whisper`)
 - **Frontend**: React 18 + Vite + Telegram Mini App SDK (`frontend/`)
-- **Database**: MongoDB Atlas Data API
+- **Database**: Neon Postgres (`@neondatabase/serverless`)
 - **Fuzzy Matching**: Fuse.js
 
 ---

@@ -12,94 +12,7 @@ import { TransactionTextParser } from '../src/services/ai/textParser';
 import { WhitelistCommands } from '../src/telegram/commands/whitelistCommands';
 
 function createTestDatabase(customEnv: any = {}) {
-  const store: Record<string, any[]> = {};
-  const db = new MongoDBClient({
-    MONGODB_DATA_API_KEY: 'test_key',
-    MONGODB_APP_ID: 'test_app',
-    MONGODB_DATABASE: 'finance_db',
-    ...customEnv
-  } as any);
-
-  db.client.execute = async (action: string, collection: string, payload: any = {}) => {
-    if (!store[collection]) store[collection] = [];
-    const list = store[collection];
-
-    if (action === 'insertOne') {
-      const id = 'id_' + Math.random().toString(36).substring(2, 9);
-      const doc = { ...payload.document, _id: id };
-      list.push(doc);
-      return { insertedId: id };
-    }
-    if (action === 'find') {
-      let filtered = [...list];
-      if (payload.filter) {
-        for (const [k, v] of Object.entries(payload.filter)) {
-          if (typeof v === 'object' && v !== null && '$regex' in v) {
-            const rx = new RegExp((v as any).$regex, (v as any).$options || '');
-            filtered = filtered.filter(item => rx.test(item[k] || ''));
-          } else if (typeof v === 'object' && v !== null && '$oid' in v) {
-            filtered = filtered.filter(item => item._id === (v as any).$oid);
-          } else {
-            filtered = filtered.filter(item => String(item[k]) === String(v));
-          }
-        }
-      }
-      if (payload.limit) filtered = filtered.slice(0, payload.limit);
-      return { documents: filtered };
-    }
-    if (action === 'findOne') {
-      let filtered = [...list];
-      if (payload.filter) {
-        for (const [k, v] of Object.entries(payload.filter)) {
-          if (typeof v === 'object' && v !== null && '$regex' in v) {
-            const rx = new RegExp((v as any).$regex, (v as any).$options || '');
-            filtered = filtered.filter(item => rx.test(item[k] || ''));
-          } else if (typeof v === 'object' && v !== null && '$oid' in v) {
-            filtered = filtered.filter(item => item._id === (v as any).$oid);
-          } else {
-            filtered = filtered.filter(item => String(item[k]) === String(v));
-          }
-        }
-      }
-      return { document: filtered[0] || null };
-    }
-    if (action === 'updateOne') {
-      let doc = null;
-      if (payload.filter?._id?.$oid) {
-        doc = list.find(item => item._id === payload.filter._id.$oid);
-      } else if (payload.filter?._id) {
-        doc = list.find(item => item._id === payload.filter._id);
-      } else if (payload.filter?.userId) {
-        doc = list.find(item => String(item.userId) === String(payload.filter.userId));
-      } else if (payload.filter?.name) {
-        doc = list.find(item => item.name?.toLowerCase() === payload.filter.name.toLowerCase());
-      } else if (payload.filter?.name?.$regex) {
-        const rx = new RegExp(payload.filter.name.$regex, payload.filter.name.$options || '');
-        doc = list.find(item => rx.test(item.name || ''));
-      }
-      if (doc) {
-        if (payload.update?.$set) Object.assign(doc, payload.update.$set);
-        return { matchedCount: 1, modifiedCount: 1 };
-      } else if (payload.upsert) {
-        const id = 'id_' + Math.random().toString(36).substring(2, 9);
-        const newDoc = { _id: id, ...(payload.filter || {}), ...(payload.update?.$set || {}), ...(payload.update?.$setOnInsert || {}) };
-        list.push(newDoc);
-        return { matchedCount: 0, upsertedId: id };
-      }
-      return { matchedCount: 0, modifiedCount: 0 };
-    }
-    if (action === 'deleteOne') {
-      const idx = list.findIndex(item => String(item.userId) === String(payload.filter?.userId) || item._id === payload.filter?._id);
-      if (idx >= 0) {
-        list.splice(idx, 1);
-        return { deletedCount: 1 };
-      }
-      return { deletedCount: 0 };
-    }
-    return null;
-  };
-
-  return db;
+  return new MongoDBClient(customEnv as any);
 }
 
 async function runTests() {
@@ -469,8 +382,11 @@ async function runTests() {
 
   // Test DB Failure Handling (no silent success message!)
   const failingDb = createTestDatabase();
-  failingDb.client.execute = async () => null; // Simulate 404/failure
-  failingDb.client.lastError = 'HTTP 404: {"error":"cannot find app using Client App ID \'finance-ai\'"}';
+  (failingDb.neon as any).isConfigured = true;
+  failingDb.neon.query = async () => {
+    failingDb.neon.lastError = 'HTTP 404: {"error":"cannot find database"}';
+    return [];
+  };
   const failRes = await AccountCommands.handleSetBalance(failingDb, 'EasyPaisa 5000');
   assert(failRes.includes('❌') && failRes.includes('Database Error') && failRes.includes('404'), 'Surfaces explicit database error on write failure');
 

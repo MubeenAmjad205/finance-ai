@@ -23,8 +23,9 @@ const mockEnv: Env = {
         };
       }
       if (payload.messages) {
-        const userContent = payload.messages[payload.messages.length - 1].content;
-        if (userContent.includes('STRICT SECURITY DIRECTIVE')) {
+        const fullContent = payload.messages.map((m: any) => m.content).join(' ');
+        const userContent = fullContent;
+        if (fullContent.includes('STRICT SECURITY DIRECTIVE')) {
           return {
             response: 'I am your Office Group Lunch Bot. I only manage public group lunch bills and do not have access to personal bank balances.'
           };
