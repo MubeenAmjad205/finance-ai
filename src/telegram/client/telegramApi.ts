@@ -9,11 +9,13 @@ export class TelegramApiClient {
     options: Record<string, any> = {}
   ): Promise<Response | null> {
     if (!botToken) return null;
-    if (botToken.startsWith('mock_')) {
+    const cleanToken = botToken.trim();
+    const cleanChatId = typeof chatId === 'string' ? chatId.trim() : chatId;
+    if (cleanToken.startsWith('mock_')) {
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }
-    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-    const payload = { chat_id: chatId, text, ...options };
+    const url = `https://api.telegram.org/bot${cleanToken}/sendMessage`;
+    const payload = { chat_id: cleanChatId, text, ...options };
 
     try {
       let res = await fetch(url, {
@@ -22,8 +24,8 @@ export class TelegramApiClient {
         body: JSON.stringify(payload)
       });
 
-      // Automatic retry for 522 / 502 / 504 Cloudflare/Telegram gateway timeouts
-      if (res.status === 522 || res.status === 502 || res.status === 504) {
+      // Automatic retry for 525 / 522 / 502 / 504 Cloudflare/Telegram gateway timeouts
+      if (res.status === 525 || res.status === 522 || res.status === 502 || res.status === 504) {
         console.warn(`[TelegramApiClient.sendMessage Gateway ${res.status}]: Retrying in 500ms...`);
         await new Promise(r => setTimeout(r, 500));
         res = await fetch(url, {
@@ -36,14 +38,14 @@ export class TelegramApiClient {
       if (!res.ok) {
         const errText = await res.text();
         console.error('[TelegramApiClient.sendMessage Error]:', res.status, errText);
-        if (options.parse_mode && errText.includes("Can't parse entities")) {
+        if (options.parse_mode && (errText.includes("Can't parse entities") || res.status === 525)) {
           console.warn('[TelegramApiClient.sendMessage Fallback]: Resending without parse_mode');
           const fallbackOptions = { ...options };
           delete fallbackOptions.parse_mode;
           return await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text, ...fallbackOptions })
+            body: JSON.stringify({ chat_id: cleanChatId, text, ...fallbackOptions })
           });
         }
       }
