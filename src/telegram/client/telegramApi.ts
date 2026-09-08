@@ -16,11 +16,22 @@ export class TelegramApiClient {
     const payload = { chat_id: chatId, text, ...options };
 
     try {
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+
+      // Automatic retry for 522 / 502 / 504 Cloudflare/Telegram gateway timeouts
+      if (res.status === 522 || res.status === 502 || res.status === 504) {
+        console.warn(`[TelegramApiClient.sendMessage Gateway ${res.status}]: Retrying in 500ms...`);
+        await new Promise(r => setTimeout(r, 500));
+        res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      }
 
       if (!res.ok) {
         const errText = await res.text();
